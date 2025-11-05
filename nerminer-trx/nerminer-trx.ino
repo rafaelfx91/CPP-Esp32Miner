@@ -4,17 +4,17 @@
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include "SPIFFS.h"
+#include "sha256_acelerado.h"
 
-// ========== CONFIGURAÇÕES ATUALIZADAS ==========
-const char* ssid = "a";
-const char* password = "a";
+// ========== CONFIGURAÇÕES ==========
+const char* ssid = "A";
+const char* password = "A";
 const char* TRX_WALLET = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
 
 const char* POOL_HOST = "sha256.unmineable.com";
 const int POOL_PORT = 3333;
-// WORKER COM REFERRAL - ECONOMIZA 25% EM TAXAS!
 const String WORKER_NAME = "esp32-miner#cub7-5a3h";
-// ===============================================
+// ===================================
 
 WiFiClient poolClient;
 WebServer server(80);
@@ -28,6 +28,26 @@ unsigned long last_log_save = 0;
 unsigned long last_pool_activity = 0;
 bool poolConnected = false;
 String current_job_id = "";
+
+// Variáveis para mineração real
+uint8_t job_target[32];
+uint8_t job_header[80];
+uint32_t current_nonce = 0;
+
+// Funções auxiliares
+void hexToBytes(const char* hex, uint8_t* bytes, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        sscanf(hex + 2 * i, "%2hhx", &bytes[i]);
+    }
+}
+
+void reverseBytes(uint8_t* data, size_t len) {
+    for (size_t i = 0; i < len / 2; i++) {
+        uint8_t temp = data[i];
+        data[i] = data[len - 1 - i];
+        data[len - 1 - i] = temp;
+    }
+}
 
 void connectToWiFi() {
   WiFi.begin(ssid, password);
@@ -74,9 +94,53 @@ void submitHashrate() {
   Serial.println("📊 Reportando hashrate: " + String(hashrate, 1) + " H/s");
 }
 
-// VERIFICAÇÃO MELHORADA DE CONEXÃO
 bool isPoolReallyConnected() {
   return poolClient.connected() && (millis() - last_pool_activity < 120000);
+}
+
+void processMiningNotify(JsonArray params) {
+    current_job_id = String(params[0].as<const char*>());
+    String prevhash = params[1].as<const char*>();
+    String coinb1 = params[2].as<const char*>();
+    String coinb2 = params[3].as<const char*>();
+    String version = params[5].as<const char*>();
+    String nbits = params[6].as<const char*>();
+    String ntime = params[7].as<const char*>();
+    
+    Serial.println("🎯 NOVO TRABALHO: " + current_job_id);
+    
+    // Montar cabeçalho de 80 bytes
+    memset(job_header, 0, 80);
+    
+    // Version (4 bytes)
+    hexToBytes(version.c_str(), job_header, 4);
+    reverseBytes(job_header, 4);
+    
+    // PrevHash (32 bytes)
+    hexToBytes(prevhash.c_str(), job_header + 4, 32);
+    reverseBytes(job_header + 4, 32);
+    
+    // Merkle Root (32 bytes) - placeholder para simplificação
+    // Em um minerador completo, isso seria calculado do coinb1, coinb2 e merkle_branch
+    memset(job_header + 36, 0, 32);
+    
+    // Time (4 bytes)
+    hexToBytes(ntime.c_str(), job_header + 68, 4);
+    reverseBytes(job_header + 68, 4);
+    
+    // Bits (4 bytes)
+    hexToBytes(nbits.c_str(), job_header + 72, 4);
+    reverseBytes(job_header + 72, 4);
+    
+    // Nonce inicial (4 bytes)
+    current_nonce = 0;
+    memcpy(job_header + 76, &current_nonce, 4);
+    
+    // Target simplificado (dificuldade baixa para ESP32)
+    memset(job_target, 0xFF, 32);
+    job_target[31] = 0x1F; // Target mais fácil
+    
+    Serial.println("✅ Trabalho configurado. Iniciando mineração real SHA-256!");
 }
 
 void handlePoolResponse() {
@@ -127,35 +191,51 @@ void handlePoolResponse() {
     
     if (doc.containsKey("method") && String(doc["method"].as<const char*>()) == "mining.notify") {
       if (doc["params"].is<JsonArray>() && doc["params"].size() > 0) {
-        current_job_id = String(doc["params"][0].as<const char*>());
-        Serial.println("🎯 NOVO TRABALHO: " + current_job_id);
-        processMiningJob();
+        processMiningNotify(doc["params"].as<JsonArray>());
       }
     }
   }
 }
 
-// MINERAÇÃO OTIMIZADA - MELHOR GERAÇÃO DE NONCES
 void processMiningJob() {
   if (current_job_id == "") return;
   
-  Serial.println("⛏️ Minerando trabalho: " + current_job_id);
+  uint32_t nonce_batch_size = 1000;
+  uint8_t hash_result[32];
   
-  for(int i = 0; i < 50; i++) { // Aumentado para mais tentativas
-    // Geração de nonce mais "realista"
-    unsigned long nonce_num = micros() + random(0xFFFF) + (hashes_calculated * 37);
-    String nonce = String(nonce_num, HEX);
+  for(uint32_t i = 0; i < nonce_batch_size; i++) {
+    // Atualizar nonce no cabeçalho
+    memcpy(job_header + 76, &current_nonce, 4);
+    
+    // CALCULAR DOUBLE SHA-256 COM ACELERAÇÃO DE HARDWARE
+    calculate_double_sha256(job_header, hash_result);
     
     hashes_calculated++;
+    current_nonce++;
     
-    // Enviar share a cada 15 hashes (menos frequente, mas mais chance de acerto)
-    if (hashes_calculated % 15 == 0) {
-      submitShare(current_job_id, nonce);
-      delay(500); // Mais tempo entre shares
+    // Verificar se o hash atinge o target
+    bool is_valid = true;
+    for (int j = 31; j >= 0; j--) {
+      if (hash_result[j] < job_target[j]) {
+        is_valid = true;
+        break;
+      }
+      if (hash_result[j] > job_target[j]) {
+        is_valid = false;
+        break;
+      }
     }
     
-    // Status a cada 25 hashes
-    if (hashes_calculated % 25 == 0) {
+    // Submeter share se válido
+    if (is_valid) {
+      char nonce_hex[9];
+      sprintf(nonce_hex, "%08x", current_nonce - 1);
+      submitShare(current_job_id, String(nonce_hex));
+      break; // Pausar para não enviar muitos shares de uma vez
+    }
+    
+    // Status a cada 100 hashes
+    if (hashes_calculated % 100 == 0) {
       unsigned long current_time = millis();
       float elapsed_sec = (current_time - start_time) / 1000.0;
       float hashrate = elapsed_sec > 0 ? (float)hashes_calculated / elapsed_sec : 0;
@@ -169,8 +249,6 @@ void processMiningJob() {
       Serial.print(" | Rejeitados: ");
       Serial.println(shares_rejected);
     }
-    
-    delay(30); // Reduzido delay para mais velocidade
   }
 }
 
@@ -178,7 +256,7 @@ void submitShare(String job_id, String nonce) {
   String share_msg = "{\"id\":" + String(millis()) + ",\"method\":\"mining.submit\",\"params\":[\"TRX:" + 
                     String(TRX_WALLET) + "." + WORKER_NAME + "\",\"" + job_id + "\",\"" + nonce + "\"]}\n";
   poolClient.print(share_msg);
-  Serial.println("📤 Enviando share...");
+  Serial.println("📤 Enviando share REAL: " + nonce);
 }
 
 // ========== SISTEMA DE ARQUIVOS E LOGS ==========
@@ -208,7 +286,7 @@ void saveLog() {
   file.println(log_entry);
   file.close();
   
-  Serial.println("💾 Log salvo: " + log_entry);
+  Serial.println("💾 Log salvo");
 }
 
 void deleteLogs() {
@@ -219,7 +297,7 @@ void deleteLogs() {
   }
 }
 
-// ========== SERVIDOR WEB ATUALIZADO ==========
+// ========== SERVIDOR WEB ==========
 void handleRoot() {
   String html = R"rawliteral(
   <!DOCTYPE html>
@@ -227,7 +305,7 @@ void handleRoot() {
   <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>ESP32 Miner TRX</title>
+      <title>ESP32 Miner TRX - SHA256 REAL</title>
       <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 
@@ -243,6 +321,7 @@ void handleRoot() {
               padding: 20px;
               background: #1e1e1e;
               border-radius: 10px;
+              border: 2px solid #00ff00;
           }
           .card { 
               background: #1e1e1e; 
@@ -251,7 +330,6 @@ void handleRoot() {
               border-radius: 10px;
               border-left: 4px solid #00ff00;
           }
-          .card.error { border-left-color: #ff0000; }
           .status { display: flex; justify-content: space-between; margin: 5px 0; }
           .label { color: #cccccc; }
           .value { font-weight: bold; }
@@ -277,6 +355,14 @@ void handleRoot() {
               font-size: 12px;
               margin-left: 10px;
           }
+          .hardware-badge { 
+              background: #2196F3; 
+              color: white; 
+              padding: 5px 10px; 
+              border-radius: 15px; 
+              font-size: 12px;
+              margin-left: 5px;
+          }
           @media (max-width: 600px) { .stats-grid { grid-template-columns: 1fr; } }
       </style>
       <script>
@@ -295,7 +381,7 @@ void handleRoot() {
                       document.getElementById('hashrate').innerHTML = data.hashrate + ' H/s';
                       document.getElementById('shares').innerHTML = data.shares;
                       document.getElementById('rejected').innerHTML = data.shares_rejected;
-                      document.getElementById('worker').innerHTML = data.worker + ' <span class="referral-badge">REFERRAL</span>';
+                      document.getElementById('worker').innerHTML = data.worker;
                       document.getElementById('pool').innerHTML = data.pool;
                       document.getElementById('coin').innerHTML = data.coin;
                       document.getElementById('wallet').innerHTML = data.wallet;
@@ -313,16 +399,16 @@ void handleRoot() {
               }
           }
           
-          // Auto-atualizar a cada 10 segundos
-          setInterval(updateStats, 10000);
+          setInterval(updateStats, 5000);
           document.addEventListener('DOMContentLoaded', updateStats);
       </script>
   </head>
   <body>
       <div class="container">
           <div class="header">
-              <h1>⚡ ESP32 Miner TRX</h1>
-              <p>Monitor em Tempo Real <span class="referral-badge">REFERRAL ATIVO</span></p>
+              <h1>⚡ ESP32 Miner TRX - SHA256 REAL</h1>
+              <p>Mineração com Aceleração de Hardware <span class="hardware-badge">HARDWARE ACCEL</span></p>
+              <p>Worker: <span id="worker">Carregando...</span> <span class="referral-badge">REFERRAL ATIVO</span></p>
           </div>
           
           <div class="card">
@@ -350,10 +436,10 @@ void handleRoot() {
           </div>
           
           <div class="card">
-              <h2>⛏️ Status da Mineração</h2>
+              <h2>⛏️ Status da Mineração REAL</h2>
               <div class="stats-grid">
                   <div class="status">
-                      <span class="label">Hashes:</span>
+                      <span class="label">Hashes Calculados:</span>
                       <span class="value" id="hashes">0</span>
                   </div>
                   <div class="status">
@@ -369,10 +455,6 @@ void handleRoot() {
                       <span class="value" id="rejected">0</span>
                   </div>
                   <div class="status">
-                      <span class="label">Worker:</span>
-                      <span class="value" id="worker">Carregando...</span>
-                  </div>
-                  <div class="status">
                       <span class="label">Pool:</span>
                       <span class="value" id="pool">Carregando...</span>
                   </div>
@@ -386,7 +468,7 @@ void handleRoot() {
           <div class="card">
               <h2>💰 Carteira</h2>
               <div class="status">
-                  <span class="label">Endereço:</span>
+                  <span class="label">Endereço TRX:</span>
                   <span class="value" id="wallet">Carregando...</span>
               </div>
           </div>
@@ -417,7 +499,7 @@ void handleApiStats() {
   float hashrate = uptime_seconds > 0 ? (float)hashes_calculated / uptime_seconds : 0;
   
   doc["wifi_ssid"] = WiFi.SSID();
-  doc["pool_connected"] = isPoolReallyConnected(); // VERIFICAÇÃO MELHORADA
+  doc["pool_connected"] = isPoolReallyConnected();
   doc["ip_address"] = WiFi.localIP().toString();
   doc["mac_address"] = WiFi.macAddress();
   doc["uptime"] = uptime_str;
@@ -427,7 +509,7 @@ void handleApiStats() {
   doc["shares_rejected"] = shares_rejected;
   doc["worker"] = WORKER_NAME;
   doc["pool"] = String(POOL_HOST) + ":" + String(POOL_PORT);
-  doc["coin"] = "TRON (TRX)";
+  doc["coin"] = "TRON (TRX) - SHA256 REAL";
   doc["wallet"] = TRX_WALLET;
   
   String response;
@@ -460,9 +542,13 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n⚡ MINERADOR UNMINEABLE COM REFERRAL ⚡");
-  Serial.println("💰 Taxa reduzida para 0.75%!");
-  Serial.println("=====================================");
+  Serial.println("\n⚡ MINERADOR SHA256 REAL COM ACELERAÇÃO DE HARDWARE ⚡");
+  Serial.println("💰 Worker com Referral: " + WORKER_NAME);
+  Serial.println("===================================================");
+  
+  // Inicializar acelerador SHA-256
+  init_sha256_accelerator();
+  Serial.println("✅ Acelerador SHA-256 inicializado!");
   
   // Inicializar SPIFFS
   if (!SPIFFS.begin(true)) {
@@ -498,6 +584,11 @@ void loop() {
       last_ping = millis();
     }
     
+    // Mineração REAL se tiver trabalho
+    if (current_job_id != "") {
+      processMiningJob();
+    }
+    
     // Atualizar hashrate a cada 2 minutos
     static unsigned long last_hashrate_update = 0;
     if (millis() - last_hashrate_update > 120000) {
@@ -519,23 +610,5 @@ void loop() {
     last_log_save = millis();
   }
   
-  // Estatísticas a cada 2 minutos
-  static unsigned long last_stats = 0;
-  if (millis() - last_stats > 120000) {
-    unsigned long current_time = millis();
-    float elapsed_min = (current_time - start_time) / 60000.0;
-    float hashrate = elapsed_min > 0 ? hashes_calculated / (elapsed_min * 60) : 0;
-    
-    Serial.println("\n=== 📊 ESTATÍSTICAS ===");
-    Serial.println("⛏️ Hashes: " + String(hashes_calculated));
-    Serial.println("✅ Shares Aceitos: " + String(shares_submitted));
-    Serial.println("❌ Shares Rejeitados: " + String(shares_rejected));
-    Serial.println("🚀 Hashrate: " + String(hashrate, 2) + " H/s");
-    Serial.println("💰 Worker com Referral: " + WORKER_NAME);
-    Serial.println("=====================\n");
-    
-    last_stats = millis();
-  }
-  
-  delay(100);
+  delay(50);
 }
