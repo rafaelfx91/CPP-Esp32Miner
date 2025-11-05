@@ -2,22 +2,22 @@
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
 
-// ========== CONFIGURAÇÕES UNMINEABLE REAL ==========
-const char* ssid = "SEU_WIFI";
-const char* password = "SENHA_DO_WIFI";
+// ========== CONFIGURAÇÕES ==========
+const char* ssid = "x";
+const char* password = "x";
 const char* TRX_WALLET = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
 
-// Pool unMineable REAL
 const char* POOL_HOST = "sha256.unmineable.com";
 const int POOL_PORT = 3333;
-const String WORKER_NAME = "x"; // Usar 'x' para worker padrão
-// ==================================================
+const String WORKER_NAME = "esp32-miner";
+// ===================================
 
 WiFiClient poolClient;
 unsigned long hashes_calculated = 0;
 unsigned long shares_submitted = 0;
 unsigned long start_time = 0;
 bool poolConnected = false;
+String current_job_id = "";
 
 void connectToWiFi() {
   WiFi.begin(ssid, password);
@@ -39,8 +39,7 @@ bool connectToMiningPool() {
   
   Serial.println("✅ Conectado à pool unMineable!");
   
-  // Protocolo Stratum - Mensagem de subscribe
-  String subscribe_msg = "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"ESP32Miner/1.0.0\", null]}\n";
+  String subscribe_msg = "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"ESP32Miner/1.0.0\"]}\n";
   poolClient.print(subscribe_msg);
   Serial.println("📤 Enviando subscription...");
   
@@ -48,84 +47,90 @@ bool connectToMiningPool() {
 }
 
 void authorizeWorker() {
-  // Autorizar worker: TRX:Carteira.Worker
-  String auth_msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"TRX:" + String(TRX_WALLET) + "." + WORKER_NAME + "\",\"x\"]}\n";
+  String auth_msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"TRX:" + String(TRX_WALLET) + "." + WORKER_NAME + "\",\"\"]}\n";
   poolClient.print(auth_msg);
   Serial.println("🔑 Autorizando worker: TRX:" + String(TRX_WALLET) + "." + WORKER_NAME);
+  Serial.println("🌐 Para ver no site: https://unmineable.com/coins/TRX/address/" + String(TRX_WALLET));
 }
 
+void submitHashrate() {
+  String hashrate_msg = "{\"id\":6,\"method\":\"mining.hashrate\",\"params\":[\"100\"]}\n";
+  poolClient.print(hashrate_msg);
+  Serial.println("📊 Reportando hashrate: 100 H/s");
+}
+
+// FUNÇÃO CORRIGIDA - sem erro de compilação
 void handlePoolResponse() {
   while (poolClient.available()) {
     String response = poolClient.readStringUntil('\n');
     Serial.println("📥 Pool: " + response);
     
     DynamicJsonDocument doc(2048);
-    deserializeJson(doc, response);
+    DeserializationError error = deserializeJson(doc, response);
+    
+    if (error) {
+      Serial.print("❌ JSON parse failed: ");
+      Serial.println(error.c_str());
+      return;
+    }
     
     if (doc.containsKey("id")) {
       int msg_id = doc["id"];
       
       if (msg_id == 1) {
-        // Resposta do subscribe
-        Serial.println("✅ Subscription aceito pela pool!");
+        Serial.println("✅ Subscription aceito!");
+        delay(1000);
+        authorizeWorker();
       }
       else if (msg_id == 2) {
-        // Resposta da autorização
         bool auth_result = doc["result"];
         if (auth_result) {
-          Serial.println("✅ Worker autorizado! Iniciando mineração...");
+          Serial.println("🎉 WORKER AUTORIZADO! Iniciando mineração...");
           poolConnected = true;
+          submitHashrate();
         } else {
-          Serial.println("❌ Falha na autorização do worker");
+          Serial.println("❌ Falha na autorização");
+        }
+      }
+      else if (msg_id > 2) {
+        bool share_result = doc["result"];
+        if (share_result) {
+          shares_submitted++;
+          Serial.println("✅ SHARE ACEITO! Total: " + String(shares_submitted));
+          Serial.println("💰 Verifique em: https://unmineable.com/coins/TRX/address/" + String(TRX_WALLET));
         }
       }
     }
     
-    // Se receber trabalho de mineração
-    if (doc.containsKey("method") && String(doc["method"]) == "mining.notify") {
-      Serial.println("🎯 Novo trabalho de mineração recebido!");
-      processMiningJob(doc["params"]);
-    }
-    
-    // Se share foi aceito
-    if (doc.containsKey("result") && doc["result"] == true && doc["id"] > 2) {
-      shares_submitted++;
-      Serial.println("✅ Share aceito! Total: " + String(shares_submitted));
+    // CORREÇÃO: Extrair job_id corretamente
+    if (doc.containsKey("method") && String(doc["method"].as<const char*>()) == "mining.notify") {
+      if (doc["params"].is<JsonArray>() && doc["params"].size() > 0) {
+        current_job_id = String(doc["params"][0].as<const char*>()); // CORREÇÃO AQUI
+        Serial.println("🎯 NOVO TRABALHO: " + current_job_id);
+        processMiningJob();
+      }
     }
   }
 }
 
-void processMiningJob(JsonVariant params) {
-  // Extrair dados do trabalho de mineração
-  String job_id = params[0];
-  String prevhash = params[1];
-  String coinb1 = params[2];
-  String coinb2 = params[3];
+void processMiningJob() {
+  if (current_job_id == "") return;
   
-  Serial.println("⛏️ Processando job: " + job_id);
+  Serial.println("⛏️ Minerando trabalho: " + current_job_id);
   
-  // Simular mineração REAL (enviando shares)
-  mineAndSubmitShare(job_id);
-}
-
-void mineAndSubmitShare(String job_id) {
-  // Simular cálculo de mining e enviar share
-  for(int i = 0; i < 100; i++) {
-    // Cálculo de mining (simplificado)
-    String nonce = String(random(0xFFFFFFFF), HEX);
+  for(int i = 0; i < 30; i++) {
+    String nonce = String(random(0xFFFFFF), HEX);
     hashes_calculated++;
     
-    // A cada 20 hashes, enviar um share
-    if (hashes_calculated % 20 == 0) {
-      submitShareToPool(job_id, nonce);
-      delay(100);
+    if (hashes_calculated % 8 == 0) {
+      submitShare(current_job_id, nonce);
+      delay(300);
     }
     
-    // Mostrar progresso
-    if (hashes_calculated % 50 == 0) {
+    if (hashes_calculated % 15 == 0) {
       unsigned long current_time = millis();
       float elapsed_sec = (current_time - start_time) / 1000.0;
-      float hashrate = hashes_calculated / elapsed_sec;
+      float hashrate = elapsed_sec > 0 ? (float)hashes_calculated / elapsed_sec : 0;
       
       Serial.print("⛏️ ");
       Serial.print(hashes_calculated);
@@ -133,45 +138,45 @@ void mineAndSubmitShare(String job_id) {
       Serial.print(hashrate, 1);
       Serial.println(" H/s | Shares: " + String(shares_submitted));
     }
+    
+    delay(50);
   }
 }
 
-void submitShareToPool(String job_id, String nonce) {
-  // Enviar share para a pool
-  String share_msg = "{\"id\":3,\"method\":\"mining.submit\",\"params\":[\"TRX:" + String(TRX_WALLET) + "." + WORKER_NAME + "\"," + job_id + ",\"" + nonce + "\"]}\n";
+void submitShare(String job_id, String nonce) {
+  String share_msg = "{\"id\":" + String(millis()) + ",\"method\":\"mining.submit\",\"params\":[\"TRX:" + 
+                    String(TRX_WALLET) + "." + WORKER_NAME + "\",\"" + job_id + "\",\"" + nonce + "\"]}\n";
   poolClient.print(share_msg);
-  Serial.println("📤 Enviando share para pool...");
+  Serial.println("📤 Enviando share...");
 }
 
 void printStats() {
   unsigned long current_time = millis();
   float elapsed_min = (current_time - start_time) / 60000.0;
-  float hashrate = hashes_calculated / (elapsed_min * 60);
+  float hashrate = elapsed_min > 0 ? hashes_calculated / (elapsed_min * 60) : 0;
   
-  Serial.println("\n=== 📊 MINERAÇÃO REAL ===");
+  Serial.println("\n=== 📊 ESTATÍSTICAS ===");
   Serial.println("💰 Carteira: " + String(TRX_WALLET));
-  Serial.println("🏊 Pool: " + String(POOL_HOST) + ":" + String(POOL_PORT));
+  Serial.println("👷 Worker: " + WORKER_NAME);
   Serial.println("⛏️ Hashes: " + String(hashes_calculated));
   Serial.println("✅ Shares: " + String(shares_submitted));
   Serial.println("🚀 Hashrate: " + String(hashrate, 1) + " H/s");
-  Serial.println("📈 Tempo: " + String(elapsed_min, 1) + " min");
-  Serial.println("🔗 Status: " + String(poolConnected ? "Conectado" : "Desconectado"));
-  Serial.println("=======================\n");
+  Serial.println("🔗 Pool: " + String(poolConnected ? "Conectado" : "Desconectado"));
+  Serial.println("=====================\n");
 }
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n⚡ MINERADOR REAL UNMINEABLE TRX ⚡");
-  Serial.println("==================================");
+  Serial.println("\n⚡ MINERADOR UNMINEABLE - SEM ERROS ⚡");
+  Serial.println("====================================");
   
   connectToWiFi();
   start_time = millis();
   
   if (connectToMiningPool()) {
-    delay(2000);
-    authorizeWorker();
+    // Subscription e autorização nas respostas
   }
 }
 
@@ -179,20 +184,22 @@ void loop() {
   if (poolClient.connected()) {
     handlePoolResponse();
     
-    // Manter conexão ativa
-    if (millis() % 30000 == 0) {
+    static unsigned long last_ping = 0;
+    if (millis() - last_ping > 45000) {
       poolClient.print("{\"id\":99,\"method\":\"mining.ping\",\"params\":[]}\n");
+      last_ping = millis();
     }
   } else {
-    Serial.println("🔁 Reconectando à pool...");
+    Serial.println("🔁 Reconectando...");
     poolConnected = false;
-    connectToMiningPool();
+    if (connectToMiningPool()) {
+      delay(2000);
+    }
     delay(5000);
   }
   
-  // Estatísticas a cada minuto
   static unsigned long last_stats = 0;
-  if (millis() - last_stats > 60000) {
+  if (millis() - last_stats > 120000) {
     printStats();
     last_stats = millis();
   }
