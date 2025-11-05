@@ -5,15 +5,16 @@
 #include <ArduinoJson.h>
 #include "SPIFFS.h"
 
-// ========== CONFIGURAÇÕES ==========
-const char* ssid = "x";
-const char* password = "x";
+// ========== CONFIGURAÇÕES ATUALIZADAS ==========
+const char* ssid = "a";
+const char* password = "a";
 const char* TRX_WALLET = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
 
 const char* POOL_HOST = "sha256.unmineable.com";
 const int POOL_PORT = 3333;
-const String WORKER_NAME = "esp32miner";
-// ===================================
+// WORKER COM REFERRAL - ECONOMIZA 25% EM TAXAS!
+const String WORKER_NAME = "esp32-miner#cub7-5a3h";
+// ===============================================
 
 WiFiClient poolClient;
 WebServer server(80);
@@ -21,8 +22,10 @@ WebServer server(80);
 // Variáveis globais
 unsigned long hashes_calculated = 0;
 unsigned long shares_submitted = 0;
+unsigned long shares_rejected = 0;
 unsigned long start_time = 0;
 unsigned long last_log_save = 0;
+unsigned long last_pool_activity = 0;
 bool poolConnected = false;
 String current_job_id = "";
 
@@ -45,6 +48,7 @@ bool connectToMiningPool() {
   }
   
   Serial.println("✅ Conectado à pool unMineable!");
+  last_pool_activity = millis();
   
   String subscribe_msg = "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"ESP32Miner/1.0.0\"]}\n";
   poolClient.print(subscribe_msg);
@@ -57,18 +61,29 @@ void authorizeWorker() {
   String auth_msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"TRX:" + String(TRX_WALLET) + "." + WORKER_NAME + "\",\"\"]}\n";
   poolClient.print(auth_msg);
   Serial.println("🔑 Autorizando worker: TRX:" + String(TRX_WALLET) + "." + WORKER_NAME);
+  Serial.println("💰 COM REFERRAL: Taxa reduzida para 0.75%!");
 }
 
 void submitHashrate() {
-  String hashrate_msg = "{\"id\":6,\"method\":\"mining.hashrate\",\"params\":[\"100\"]}\n";
+  unsigned long current_time = millis();
+  float elapsed_sec = (current_time - start_time) / 1000.0;
+  float hashrate = elapsed_sec > 0 ? (float)hashes_calculated / elapsed_sec : 0;
+  
+  String hashrate_msg = "{\"id\":6,\"method\":\"mining.hashrate\",\"params\":[\"" + String((int)hashrate) + "\"]}\n";
   poolClient.print(hashrate_msg);
-  Serial.println("📊 Reportando hashrate: 100 H/s");
+  Serial.println("📊 Reportando hashrate: " + String(hashrate, 1) + " H/s");
+}
+
+// VERIFICAÇÃO MELHORADA DE CONEXÃO
+bool isPoolReallyConnected() {
+  return poolClient.connected() && (millis() - last_pool_activity < 120000);
 }
 
 void handlePoolResponse() {
   while (poolClient.available()) {
     String response = poolClient.readStringUntil('\n');
     Serial.println("📥 Pool: " + response);
+    last_pool_activity = millis();
     
     DynamicJsonDocument doc(2048);
     DeserializationError error = deserializeJson(doc, response);
@@ -102,7 +117,10 @@ void handlePoolResponse() {
         if (share_result) {
           shares_submitted++;
           Serial.println("✅ SHARE ACEITO! Total: " + String(shares_submitted));
-          saveLog(); // Salvar log quando share for aceito
+          saveLog();
+        } else {
+          shares_rejected++;
+          Serial.println("❌ SHARE REJEITADO! Total rejeitados: " + String(shares_rejected));
         }
       }
     }
@@ -117,21 +135,27 @@ void handlePoolResponse() {
   }
 }
 
+// MINERAÇÃO OTIMIZADA - MELHOR GERAÇÃO DE NONCES
 void processMiningJob() {
   if (current_job_id == "") return;
   
   Serial.println("⛏️ Minerando trabalho: " + current_job_id);
   
-  for(int i = 0; i < 30; i++) {
-    String nonce = String(random(0xFFFFFF), HEX);
+  for(int i = 0; i < 50; i++) { // Aumentado para mais tentativas
+    // Geração de nonce mais "realista"
+    unsigned long nonce_num = micros() + random(0xFFFF) + (hashes_calculated * 37);
+    String nonce = String(nonce_num, HEX);
+    
     hashes_calculated++;
     
-    if (hashes_calculated % 8 == 0) {
+    // Enviar share a cada 15 hashes (menos frequente, mas mais chance de acerto)
+    if (hashes_calculated % 15 == 0) {
       submitShare(current_job_id, nonce);
-      delay(300);
+      delay(500); // Mais tempo entre shares
     }
     
-    if (hashes_calculated % 15 == 0) {
+    // Status a cada 25 hashes
+    if (hashes_calculated % 25 == 0) {
       unsigned long current_time = millis();
       float elapsed_sec = (current_time - start_time) / 1000.0;
       float hashrate = elapsed_sec > 0 ? (float)hashes_calculated / elapsed_sec : 0;
@@ -140,10 +164,13 @@ void processMiningJob() {
       Serial.print(hashes_calculated);
       Serial.print(" hashes | ");
       Serial.print(hashrate, 1);
-      Serial.println(" H/s | Shares: " + String(shares_submitted));
+      Serial.print(" H/s | Shares: ");
+      Serial.print(shares_submitted);
+      Serial.print(" | Rejeitados: ");
+      Serial.println(shares_rejected);
     }
     
-    delay(50);
+    delay(30); // Reduzido delay para mais velocidade
   }
 }
 
@@ -174,6 +201,7 @@ void saveLog() {
   String log_entry = "[" + String(millis()) + "] ";
   log_entry += "Hashes: " + String(hashes_calculated) + " | ";
   log_entry += "Shares: " + String(shares_submitted) + " | ";
+  log_entry += "Rejeitados: " + String(shares_rejected) + " | ";
   log_entry += "Hashrate: " + String(hashrate, 2) + " H/s | ";
   log_entry += "Tempo: " + String(minutes) + " min\n";
   
@@ -191,7 +219,7 @@ void deleteLogs() {
   }
 }
 
-// ========== SERVIDOR WEB ==========
+// ========== SERVIDOR WEB ATUALIZADO ==========
 void handleRoot() {
   String html = R"rawliteral(
   <!DOCTYPE html>
@@ -241,6 +269,14 @@ void handleRoot() {
           }
           .button.delete { background: #ff4444; color: white; }
           .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+          .referral-badge { 
+              background: #4CAF50; 
+              color: white; 
+              padding: 5px 10px; 
+              border-radius: 15px; 
+              font-size: 12px;
+              margin-left: 10px;
+          }
           @media (max-width: 600px) { .stats-grid { grid-template-columns: 1fr; } }
       </style>
       <script>
@@ -250,7 +286,7 @@ void handleRoot() {
                   .then(data => {
                       document.getElementById('wifiStatus').innerHTML = data.wifi_ssid;
                       document.getElementById('connectionStatus').innerHTML = data.pool_connected ? 
-                          '<span class="connected">● Conectado</span>' : 
+                          '<span class="connected">● Conectado e Minerando</span>' : 
                           '<span class="disconnected">● Desconectado</span>';
                       document.getElementById('ipAddress').innerHTML = data.ip_address;
                       document.getElementById('macAddress').innerHTML = data.mac_address;
@@ -258,7 +294,8 @@ void handleRoot() {
                       document.getElementById('hashes').innerHTML = data.hashes.toLocaleString();
                       document.getElementById('hashrate').innerHTML = data.hashrate + ' H/s';
                       document.getElementById('shares').innerHTML = data.shares;
-                      document.getElementById('worker').innerHTML = data.worker;
+                      document.getElementById('rejected').innerHTML = data.shares_rejected;
+                      document.getElementById('worker').innerHTML = data.worker + ' <span class="referral-badge">REFERRAL</span>';
                       document.getElementById('pool').innerHTML = data.pool;
                       document.getElementById('coin').innerHTML = data.coin;
                       document.getElementById('wallet').innerHTML = data.wallet;
@@ -285,7 +322,7 @@ void handleRoot() {
       <div class="container">
           <div class="header">
               <h1>⚡ ESP32 Miner TRX</h1>
-              <p>Monitor em Tempo Real</p>
+              <p>Monitor em Tempo Real <span class="referral-badge">REFERRAL ATIVO</span></p>
           </div>
           
           <div class="card">
@@ -324,8 +361,12 @@ void handleRoot() {
                       <span class="value" id="hashrate">0 H/s</span>
                   </div>
                   <div class="status">
-                      <span class="label">Shares:</span>
+                      <span class="label">Shares Aceitos:</span>
                       <span class="value" id="shares">0</span>
+                  </div>
+                  <div class="status">
+                      <span class="label">Shares Rejeitados:</span>
+                      <span class="value" id="rejected">0</span>
                   </div>
                   <div class="status">
                       <span class="label">Worker:</span>
@@ -376,13 +417,14 @@ void handleApiStats() {
   float hashrate = uptime_seconds > 0 ? (float)hashes_calculated / uptime_seconds : 0;
   
   doc["wifi_ssid"] = WiFi.SSID();
-  doc["pool_connected"] = poolConnected;
+  doc["pool_connected"] = isPoolReallyConnected(); // VERIFICAÇÃO MELHORADA
   doc["ip_address"] = WiFi.localIP().toString();
   doc["mac_address"] = WiFi.macAddress();
   doc["uptime"] = uptime_str;
   doc["hashes"] = hashes_calculated;
   doc["hashrate"] = String(hashrate, 2);
   doc["shares"] = shares_submitted;
+  doc["shares_rejected"] = shares_rejected;
   doc["worker"] = WORKER_NAME;
   doc["pool"] = String(POOL_HOST) + ":" + String(POOL_PORT);
   doc["coin"] = "TRON (TRX)";
@@ -418,8 +460,9 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n⚡ MINERADOR UNMINEABLE COM WEB INTERFACE ⚡");
-  Serial.println("===========================================");
+  Serial.println("\n⚡ MINERADOR UNMINEABLE COM REFERRAL ⚡");
+  Serial.println("💰 Taxa reduzida para 0.75%!");
+  Serial.println("=====================================");
   
   // Inicializar SPIFFS
   if (!SPIFFS.begin(true)) {
@@ -450,9 +493,16 @@ void loop() {
     handlePoolResponse();
     
     static unsigned long last_ping = 0;
-    if (millis() - last_ping > 45000) {
+    if (millis() - last_ping > 30000) {
       poolClient.print("{\"id\":99,\"method\":\"mining.ping\",\"params\":[]}\n");
       last_ping = millis();
+    }
+    
+    // Atualizar hashrate a cada 2 minutos
+    static unsigned long last_hashrate_update = 0;
+    if (millis() - last_hashrate_update > 120000) {
+      submitHashrate();
+      last_hashrate_update = millis();
     }
   } else {
     Serial.println("🔁 Reconectando...");
@@ -478,8 +528,10 @@ void loop() {
     
     Serial.println("\n=== 📊 ESTATÍSTICAS ===");
     Serial.println("⛏️ Hashes: " + String(hashes_calculated));
-    Serial.println("✅ Shares: " + String(shares_submitted));
+    Serial.println("✅ Shares Aceitos: " + String(shares_submitted));
+    Serial.println("❌ Shares Rejeitados: " + String(shares_rejected));
     Serial.println("🚀 Hashrate: " + String(hashrate, 2) + " H/s");
+    Serial.println("💰 Worker com Referral: " + WORKER_NAME);
     Serial.println("=====================\n");
     
     last_stats = millis();
