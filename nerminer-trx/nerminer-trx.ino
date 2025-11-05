@@ -34,6 +34,10 @@ uint8_t job_target[32];
 uint8_t job_header[80];
 uint32_t current_nonce = 0;
 
+// Variáveis do sistema WiFi
+bool isAPMode = false;
+bool wifiConnected = false;
+
 // Funções auxiliares
 void hexToBytes(const char* hex, uint8_t* bytes, size_t len) {
     for (size_t i = 0; i < len; i++) {
@@ -105,10 +109,12 @@ void saveConfig() {
   Serial.println("✅ Configuração salva!");
 }
 
-void connectToWiFi() {
+// ========== SISTEMA WiFi DUAL (STA + AP) ==========
+bool connectToWiFi() {
+  Serial.println("📡 Tentando conectar WiFi: " + wifi_ssid);
+  
+  WiFi.mode(WIFI_STA);
   WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
-  Serial.print("📡 Conectando WiFi: ");
-  Serial.println(wifi_ssid);
   
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
@@ -118,13 +124,39 @@ void connectToWiFi() {
   }
   
   if (WiFi.status() == WL_CONNECTED) {
+    wifiConnected = true;
+    isAPMode = false;
     Serial.println("\n✅ WiFi Conectado! IP: " + WiFi.localIP().toString());
+    return true;
   } else {
-    Serial.println("\n❌ Falha na conexão WiFi");
+    Serial.println("\n❌ Falha na conexão WiFi - Ativando modo AP");
+    startAPMode();
+    return false;
   }
 }
 
+void startAPMode() {
+  Serial.println("🌐 Iniciando modo Access Point...");
+  
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP("ESP32-Miner-Config", "12345678");
+  
+  isAPMode = true;
+  wifiConnected = false;
+  
+  Serial.println("✅ Modo AP Ativo!");
+  Serial.println("📶 SSID: ESP32-Miner-Config");
+  Serial.println("🔑 Senha: 12345678");
+  Serial.println("🌐 Acesse: http://192.168.4.1");
+}
+
+// ========== MINERAÇÃO ==========
 bool connectToMiningPool() {
+  if (!wifiConnected) {
+    Serial.println("❌ Sem conexão WiFi - Não é possível conectar à pool");
+    return false;
+  }
+  
   Serial.println("🔗 Conectando à pool " + pool_host + ":" + pool_port);
   
   if (!poolClient.connect(pool_host.c_str(), pool_port.toInt())) {
@@ -149,6 +181,8 @@ void authorizeWorker() {
 }
 
 void submitHashrate() {
+  if (!wifiConnected) return;
+  
   unsigned long current_time = millis();
   float elapsed_sec = (current_time - start_time) / 1000.0;
   float hashrate = elapsed_sec > 0 ? (float)hashes_calculated / elapsed_sec : 0;
@@ -362,7 +396,7 @@ void handleRoot() {
   <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>ESP32 Miner - Configurável</title>
+      <title>ESP32 Miner</title>
       <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 
@@ -380,6 +414,7 @@ void handleRoot() {
               border-radius: 10px;
               border: 2px solid #00ff00;
           }
+          .ap-mode { border-color: #ff9900 !important; }
           .card { 
               background: #1e1e1e; 
               padding: 20px; 
@@ -413,6 +448,7 @@ void handleRoot() {
           .value { font-weight: bold; }
           .connected { color: #00ff00; }
           .disconnected { color: #ff0000; }
+          .ap-indicator { color: #ff9900; }
           .button { 
               background: #00ff00; 
               color: #000; 
@@ -426,6 +462,7 @@ void handleRoot() {
           }
           .button.delete { background: #ff4444; color: white; }
           .button.secondary { background: #2196F3; color: white; }
+          .button.ap { background: #ff9900; color: black; }
           .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
           .badge { 
               background: #4CAF50; 
@@ -435,7 +472,11 @@ void handleRoot() {
               font-size: 11px;
               margin-left: 5px;
           }
+          .ap-badge { background: #ff9900; }
           .button-group { text-align: center; margin: 15px 0; }
+          .network-list { max-height: 200px; overflow-y: auto; margin: 10px 0; }
+          .network-item { padding: 8px; border: 1px solid #444; margin: 5px 0; border-radius: 5px; cursor: pointer; }
+          .network-item:hover { background: #2d2d2d; }
           @media (max-width: 768px) { 
               .config-grid, .stats-grid { grid-template-columns: 1fr; } 
           }
@@ -452,6 +493,24 @@ void handleRoot() {
                       document.getElementById('wallet').value = data.wallet || '';
                       document.getElementById('coinType').value = data.coin_type || 'TRX';
                       document.getElementById('workerName').value = data.worker_name || '';
+                  });
+          }
+          
+          function scanNetworks() {
+              fetch('/api/scan-wifi')
+                  .then(response => response.json())
+                  .then(data => {
+                      const list = document.getElementById('networkList');
+                      list.innerHTML = '';
+                      data.networks.forEach(network => {
+                          const item = document.createElement('div');
+                          item.className = 'network-item';
+                          item.innerHTML = `📶 ${network.ssid} (${network.rssi}dBm) ${network.encrypted ? '🔒' : '🔓'}`;
+                          item.onclick = () => {
+                              document.getElementById('wifiSsid').value = network.ssid;
+                          };
+                          list.appendChild(item);
+                      });
                   });
           }
           
@@ -487,6 +546,19 @@ void handleRoot() {
               fetch('/api/stats')
                   .then(response => response.json())
                   .then(data => {
+                      // Atualizar modo AP/STA
+                      const header = document.getElementById('header');
+                      if(data.ap_mode) {
+                          header.className = 'header ap-mode';
+                          document.getElementById('apIndicator').style.display = 'block';
+                          document.getElementById('staIndicator').style.display = 'none';
+                      } else {
+                          header.className = 'header';
+                          document.getElementById('apIndicator').style.display = 'none';
+                          document.getElementById('staIndicator').style.display = 'block';
+                      }
+                      
+                      // Atualizar stats
                       document.getElementById('wifiStatus').innerHTML = data.wifi_ssid;
                       document.getElementById('connectionStatus').innerHTML = data.pool_connected ? 
                           '<span class="connected">● Conectado e Minerando</span>' : 
@@ -517,60 +589,30 @@ void handleRoot() {
               }
           }
           
+          function enableAPMode() {
+              if(confirm('Ativar modo AP por 10 minutos?')) {
+                  fetch('/api/enable-ap').then(() => alert('Modo AP ativado!'));
+              }
+          }
+          
           setInterval(updateStats, 3000);
           document.addEventListener('DOMContentLoaded', () => {
               loadConfig();
               updateStats();
+              scanNetworks();
           });
       </script>
   </head>
   <body>
       <div class="container">
-          <div class="header">
-              <h1>⚡ ESP32 Miner - Configurável</h1>
-              <p>Configure e monitore tudo em uma única página</p>
-          </div>
-          
-          <div class="card">
-              <h2>⚙️ Configuração do Minerador</h2>
-              <div class="config-grid">
-                  <div class="form-group">
-                      <label class="form-label">SSID WiFi:</label>
-                      <input type="text" id="wifiSsid" class="form-input" placeholder="Nome da rede WiFi">
-                  </div>
-                  <div class="form-group">
-                      <label class="form-label">Senha WiFi:</label>
-                      <input type="password" id="wifiPassword" class="form-input" placeholder="Senha da rede">
-                  </div>
-                  <div class="form-group">
-                      <label class="form-label">Pool:</label>
-                      <input type="text" id="poolHost" class="form-input" placeholder="ex: sha256.unmineable.com">
-                  </div>
-                  <div class="form-group">
-                      <label class="form-label">Porta:</label>
-                      <input type="text" id="poolPort" class="form-input" placeholder="ex: 3333">
-                  </div>
-                  <div class="form-group">
-                      <label class="form-label">Carteira:</label>
-                      <input type="text" id="wallet" class="form-input" placeholder="Sua carteira">
-                  </div>
-                  <div class="form-group">
-                      <label class="form-label">Coin:</label>
-                      <select id="coinType" class="form-input">
-                          <option value="TRX">TRON (TRX)</option>
-                          <option value="BTC">Bitcoin (BTC)</option>
-                          <option value="ETH">Ethereum (ETH)</option>
-                          <option value="DOGE">Dogecoin (DOGE)</option>
-                      </select>
-                  </div>
-                  <div class="form-group">
-                      <label class="form-label">Worker Name:</label>
-                      <input type="text" id="workerName" class="form-input" placeholder="ex: miner01#referral">
-                  </div>
+          <div id="header" class="header">
+              <h1>⚡ ESP32 Miner</h1>
+              <div id="apIndicator" style="display: none;">
+                  <p>🔧 <strong>Modo Configuração</strong> - Conectado via WiFi do ESP32</p>
+                  <p>📶 SSID: <strong>ESP32-Miner-Config</strong> | IP: <strong>192.168.4.1</strong></p>
               </div>
-              <div class="button-group">
-                  <button class="button" onclick="saveConfig()">💾 Salvar Configuração</button>
-                  <button class="button secondary" onclick="restartMiner()">🔄 Reiniciar Minerador</button>
+              <div id="staIndicator" style="display: none;">
+                  <p>⛏️ <strong>Modo Mineração</strong> - Conectado na rede WiFi</p>
               </div>
           </div>
           
@@ -587,6 +629,10 @@ void handleRoot() {
               <div class="status">
                   <span class="label">IP Local:</span>
                   <span class="value" id="ipAddress">...</span>
+              </div>
+              <div class="status">
+                  <span class="label">MAC:</span>
+                  <span class="value" id="macAddress">...</span>
               </div>
               <div class="status">
                   <span class="label">Tempo Online:</span>
@@ -633,6 +679,55 @@ void handleRoot() {
           </div>
           
           <div class="card">
+              <h2>⚙️ Configuração do Minerador</h2>
+              
+              <h3 style="color: #ff9900; margin: 15px 0 10px 0;">📶 Configuração WiFi</h3>
+              <button class="button ap" onclick="scanNetworks()">🔍 Buscar Redes WiFi</button>
+              <div id="networkList" class="network-list"></div>
+              
+              <div class="config-grid">
+                  <div class="form-group">
+                      <label class="form-label">SSID WiFi:</label>
+                      <input type="text" id="wifiSsid" class="form-input" placeholder="Nome da rede WiFi">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Senha WiFi:</label>
+                      <input type="password" id="wifiPassword" class="form-input" placeholder="Senha da rede">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Pool:</label>
+                      <input type="text" id="poolHost" class="form-input" placeholder="ex: sha256.unmineable.com">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Porta:</label>
+                      <input type="text" id="poolPort" class="form-input" placeholder="ex: 3333">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Carteira:</label>
+                      <input type="text" id="wallet" class="form-input" placeholder="Sua carteira">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Coin:</label>
+                      <select id="coinType" class="form-input">
+                          <option value="TRX">TRON (TRX)</option>
+                          <option value="BTC">Bitcoin (BTC)</option>
+                          <option value="ETH">Ethereum (ETH)</option>
+                          <option value="DOGE">Dogecoin (DOGE)</option>
+                      </select>
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Worker Name:</label>
+                      <input type="text" id="workerName" class="form-input" placeholder="ex: miner01#referral">
+                  </div>
+              </div>
+              <div class="button-group">
+                  <button class="button" onclick="saveConfig()">💾 Salvar Configuração</button>
+                  <button class="button secondary" onclick="restartMiner()">🔄 Reiniciar Minerador</button>
+                  <button class="button ap" onclick="enableAPMode()">📶 Ativar Modo AP</button>
+              </div>
+          </div>
+          
+          <div class="card">
               <h2>🛠️ Controles</h2>
               <div class="button-group">
                   <button class="button" onclick="updateStats()">🔄 Atualizar Status</button>
@@ -672,6 +767,8 @@ void handleApiStats() {
   doc["pool"] = pool_host + ":" + pool_port;
   doc["coin"] = coin_type;
   doc["wallet"] = trx_wallet;
+  doc["ap_mode"] = isAPMode;
+  doc["wifi_connected"] = wifiConnected;
   
   String response;
   serializeJson(doc, response);
@@ -687,6 +784,25 @@ void handleApiConfig() {
   doc["wallet"] = trx_wallet;
   doc["coin_type"] = coin_type;
   doc["worker_name"] = worker_name;
+  
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+void handleScanWifi() {
+  DynamicJsonDocument doc(1024);
+  JsonArray networks = doc.createNestedArray("networks");
+  
+  if (wifiConnected) {
+    int numNetworks = WiFi.scanNetworks();
+    for (int i = 0; i < numNetworks; i++) {
+      JsonObject network = networks.createNestedObject();
+      network["ssid"] = WiFi.SSID(i);
+      network["rssi"] = WiFi.RSSI(i);
+      network["encrypted"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+    }
+  }
   
   String response;
   serializeJson(doc, response);
@@ -750,6 +866,12 @@ void handleRestartMiner() {
   server.send(200, "application/json", "{\"status\":\"restarted\"}");
 }
 
+void handleEnableAP() {
+  Serial.println("📶 Ativando modo AP por solicitação do usuário...");
+  startAPMode();
+  server.send(200, "application/json", "{\"message\":\"Modo AP ativado\"}");
+}
+
 void handleDeleteLogs() {
   deleteLogs();
   server.send(200, "application/json", "{\"message\":\"Logs apagados\"}");
@@ -759,8 +881,10 @@ void setupWebServer() {
   server.on("/", handleRoot);
   server.on("/api/stats", handleApiStats);
   server.on("/api/config", handleApiConfig);
+  server.on("/api/scan-wifi", handleScanWifi);
   server.on("/api/save-config", HTTP_POST, handleSaveConfig);
   server.on("/api/restart-miner", handleRestartMiner);
+  server.on("/api/enable-ap", handleEnableAP);
   server.on("/api/delete-logs", handleDeleteLogs);
   
   server.begin();
@@ -771,8 +895,8 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n⚡ ESP32 MINER CONFIGURÁVEL ⚡");
-  Serial.println("==============================");
+  Serial.println("\n⚡ ESP32 MINER DUAL MODE ⚡");
+  Serial.println("===========================");
   
   // Carregar configuração salva
   loadConfig();
@@ -781,29 +905,41 @@ void setup() {
   init_sha256_accelerator();
   Serial.println("✅ Acelerador SHA-256 inicializado!");
   
-  // Conectar WiFi
-  connectToWiFi();
+  // Conectar WiFi (tenta STA, fallback para AP)
+  if (!connectToWiFi()) {
+    Serial.println("🔄 Iniciando no modo AP (configuração)");
+  }
   
-  // Configurar mDNS
-  if (!MDNS.begin("esp32-miner")) {
+  // Configurar mDNS apenas se conectado no WiFi
+  if (wifiConnected && !MDNS.begin("esp32-miner")) {
     Serial.println("❌ Erro ao iniciar mDNS");
-  } else {
+  } else if (wifiConnected) {
     Serial.println("✅ mDNS: http://esp32-miner.local");
   }
   
   start_time = millis();
   setupWebServer();
   
-  // Conectar à pool
-  if (connectToMiningPool()) {
+  // Conectar à pool apenas se WiFi conectado
+  if (wifiConnected && connectToMiningPool()) {
     Serial.println("⛏️ Minerador pronto!");
+  } else if (!wifiConnected) {
+    Serial.println("⏳ Aguardando configuração WiFi via modo AP...");
   }
 }
 
 void loop() {
   server.handleClient();
   
-  if (poolClient.connected()) {
+  // Verificar se WiFi caiu e ativar AP se necessário
+  if (wifiConnected && WiFi.status() != WL_CONNECTED) {
+    Serial.println("❌ WiFi desconectado - Ativando modo AP");
+    wifiConnected = false;
+    startAPMode();
+  }
+  
+  // Processar mineração apenas se WiFi conectado
+  if (wifiConnected && poolClient.connected()) {
     handlePoolResponse();
     
     static unsigned long last_ping = 0;
@@ -821,8 +957,9 @@ void loop() {
       submitHashrate();
       last_hashrate_update = millis();
     }
-  } else {
-    Serial.println("🔁 Reconectando...");
+  } else if (wifiConnected && !poolClient.connected()) {
+    // Tentar reconectar à pool
+    Serial.println("🔁 Reconectando à pool...");
     poolConnected = false;
     if (connectToMiningPool()) {
       delay(2000);
@@ -830,7 +967,8 @@ void loop() {
     delay(5000);
   }
   
-  if (millis() - last_log_save > 300000) {
+  // Salvar log apenas se minerando
+  if (wifiConnected && millis() - last_log_save > 300000) {
     saveLog();
     last_log_save = millis();
   }
