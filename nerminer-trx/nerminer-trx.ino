@@ -6,15 +6,15 @@
 #include "SPIFFS.h"
 #include "sha256_acelerado.h"
 
-// ========== CONFIGURAÇÕES ==========
-const char* ssid = "a";
-const char* password = "a";
-const char* TRX_WALLET = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
-
-const char* POOL_HOST = "sha256.unmineable.com";
-const int POOL_PORT = 3333;
-const String WORKER_NAME = "esp32-miner#cub7-5a3h";
-// ===================================
+// ========== CONFIGURAÇÕES PADRÃO ==========
+String wifi_ssid = "a";
+String wifi_password = "a";
+String trx_wallet = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
+String pool_host = "sha256.unmineable.com";
+String pool_port = "3333";
+String worker_name = "esp32-miner#cub7-5a3h";
+String coin_type = "TRX";
+// ==========================================
 
 WiFiClient poolClient;
 WebServer server(80);
@@ -49,25 +49,90 @@ void reverseBytes(uint8_t* data, size_t len) {
     }
 }
 
+// ========== SISTEMA DE CONFIGURAÇÃO ==========
+void loadConfig() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println("❌ Erro ao montar SPIFFS");
+    return;
+  }
+  
+  if (SPIFFS.exists("/config.json")) {
+    File configFile = SPIFFS.open("/config.json", "r");
+    if (configFile) {
+      DynamicJsonDocument doc(1024);
+      DeserializationError error = deserializeJson(doc, configFile);
+      
+      if (!error) {
+        wifi_ssid = doc["wifi_ssid"] | "AAAAA";
+        wifi_password = doc["wifi_password"] | "Penademorcego5";
+        trx_wallet = doc["wallet"] | "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
+        pool_host = doc["pool_host"] | "sha256.unmineable.com";
+        pool_port = doc["pool_port"] | "3333";
+        worker_name = doc["worker_name"] | "esp32-miner#cub7-5a3h";
+        coin_type = doc["coin_type"] | "TRX";
+        
+        Serial.println("✅ Configuração carregada!");
+      }
+      configFile.close();
+    }
+  }
+}
+
+void saveConfig() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println("❌ Erro ao montar SPIFFS");
+    return;
+  }
+  
+  File configFile = SPIFFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println("❌ Erro ao salvar configuração");
+    return;
+  }
+  
+  DynamicJsonDocument doc(1024);
+  doc["wifi_ssid"] = wifi_ssid;
+  doc["wifi_password"] = wifi_password;
+  doc["wallet"] = trx_wallet;
+  doc["pool_host"] = pool_host;
+  doc["pool_port"] = pool_port;
+  doc["worker_name"] = worker_name;
+  doc["coin_type"] = coin_type;
+  
+  serializeJson(doc, configFile);
+  configFile.close();
+  
+  Serial.println("✅ Configuração salva!");
+}
+
 void connectToWiFi() {
-  WiFi.begin(ssid, password);
-  Serial.print("📡 Conectando WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
+  WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+  Serial.print("📡 Conectando WiFi: ");
+  Serial.println(wifi_ssid);
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
     Serial.print(".");
+    attempts++;
   }
-  Serial.println("\n✅ WiFi Conectado! IP: " + WiFi.localIP().toString());
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✅ WiFi Conectado! IP: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("\n❌ Falha na conexão WiFi");
+  }
 }
 
 bool connectToMiningPool() {
-  Serial.println("🔗 Conectando à pool " + String(POOL_HOST) + ":" + String(POOL_PORT));
+  Serial.println("🔗 Conectando à pool " + pool_host + ":" + pool_port);
   
-  if (!poolClient.connect(POOL_HOST, POOL_PORT)) {
+  if (!poolClient.connect(pool_host.c_str(), pool_port.toInt())) {
     Serial.println("❌ Falha na conexão com a pool");
     return false;
   }
   
-  Serial.println("✅ Conectado à pool unMineable!");
+  Serial.println("✅ Conectado à pool!");
   last_pool_activity = millis();
   
   String subscribe_msg = "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"ESP32Miner/1.0.0\"]}\n";
@@ -78,10 +143,9 @@ bool connectToMiningPool() {
 }
 
 void authorizeWorker() {
-  String auth_msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"TRX:" + String(TRX_WALLET) + "." + WORKER_NAME + "\",\"\"]}\n";
+  String auth_msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"" + coin_type + ":" + trx_wallet + "." + worker_name + "\",\"\"]}\n";
   poolClient.print(auth_msg);
-  Serial.println("🔑 Autorizando worker: TRX:" + String(TRX_WALLET) + "." + WORKER_NAME);
-  Serial.println("💰 COM REFERRAL: Taxa reduzida para 0.75%!");
+  Serial.println("🔑 Autorizando worker: " + coin_type + ":" + trx_wallet + "." + worker_name);
 }
 
 void submitHashrate() {
@@ -120,8 +184,7 @@ void processMiningNotify(JsonArray params) {
     hexToBytes(prevhash.c_str(), job_header + 4, 32);
     reverseBytes(job_header + 4, 32);
     
-    // Merkle Root (32 bytes) - placeholder para simplificação
-    // Em um minerador completo, isso seria calculado do coinb1, coinb2 e merkle_branch
+    // Merkle Root (32 bytes)
     memset(job_header + 36, 0, 32);
     
     // Time (4 bytes)
@@ -136,8 +199,8 @@ void processMiningNotify(JsonArray params) {
     current_nonce = 0;
     memcpy(job_header + 76, &current_nonce, 4);
     
-    // ✅ CORRETO (compatível com dificuldade 16384):
-    memset(job_target, 0x00, 32);  // Começa com zeros
+    // Target para dificuldade 16384
+    memset(job_target, 0x00, 32);
     job_target[0] = 0x00;
     job_target[1] = 0x00; 
     job_target[2] = 0x00;
@@ -146,7 +209,7 @@ void processMiningNotify(JsonArray params) {
     job_target[5] = 0x00;
     job_target[6] = 0x00;
     job_target[7] = 0x00;
-    job_target[29] = 0xFF;  // Últimos bytes mais "fáceis"
+    job_target[29] = 0xFF;
     job_target[30] = 0xFF;
     job_target[31] = 0xFF;
 
@@ -214,16 +277,13 @@ void processMiningJob() {
   uint8_t hash_result[32];
   
   for(uint32_t i = 0; i < nonce_batch_size; i++) {
-    // Atualizar nonce no cabeçalho
     memcpy(job_header + 76, &current_nonce, 4);
     
-    // CALCULAR DOUBLE SHA-256 COM ACELERAÇÃO DE HARDWARE
     calculate_double_sha256(job_header, hash_result);
     
     hashes_calculated++;
     current_nonce++;
     
-    // Verificar se o hash atinge o target
     bool is_valid = true;
     for (int j = 31; j >= 0; j--) {
       if (hash_result[j] < job_target[j]) {
@@ -236,15 +296,13 @@ void processMiningJob() {
       }
     }
     
-    // Submeter share se válido
     if (is_valid) {
       char nonce_hex[9];
       sprintf(nonce_hex, "%08x", current_nonce - 1);
       submitShare(current_job_id, String(nonce_hex));
-      break; // Pausar para não enviar muitos shares de uma vez
+      break;
     }
     
-    // Status a cada 100 hashes
     if (hashes_calculated % 100 == 0) {
       unsigned long current_time = millis();
       float elapsed_sec = (current_time - start_time) / 1000.0;
@@ -263,24 +321,17 @@ void processMiningJob() {
 }
 
 void submitShare(String job_id, String nonce) {
-  String share_msg = "{\"id\":" + String(millis()) + ",\"method\":\"mining.submit\",\"params\":[\"TRX:" + 
-                    String(TRX_WALLET) + "." + WORKER_NAME + "\",\"" + job_id + "\",\"" + nonce + "\"]}\n";
+  String share_msg = "{\"id\":" + String(millis()) + ",\"method\":\"mining.submit\",\"params\":[\"" + coin_type + ":" + 
+                    trx_wallet + "." + worker_name + "\",\"" + job_id + "\",\"" + nonce + "\"]}\n";
   poolClient.print(share_msg);
   Serial.println("📤 Enviando share REAL: " + nonce);
 }
 
-// ========== SISTEMA DE ARQUIVOS E LOGS ==========
 void saveLog() {
-  if (!SPIFFS.begin(true)) {
-    Serial.println("❌ Erro ao montar SPIFFS");
-    return;
-  }
+  if (!SPIFFS.begin(true)) return;
   
   File file = SPIFFS.open("/miner_log.txt", "a");
-  if (!file) {
-    Serial.println("❌ Erro ao abrir arquivo de log");
-    return;
-  }
+  if (!file) return;
   
   unsigned long current_time = millis();
   unsigned long minutes = (current_time - start_time) / 60000;
@@ -295,19 +346,15 @@ void saveLog() {
   
   file.println(log_entry);
   file.close();
-  
-  Serial.println("💾 Log salvo");
 }
 
 void deleteLogs() {
   if (!SPIFFS.begin(true)) return;
-  
-  if (SPIFFS.remove("/miner_log.txt")) {
-    Serial.println("✅ Arquivo de log removido");
-  }
+  SPIFFS.remove("/miner_log.txt");
+  Serial.println("✅ Logs apagados!");
 }
 
-// ========== SERVIDOR WEB ==========
+// ========== SERVIDOR WEB ATUALIZADO ==========
 void handleRoot() {
   String html = R"rawliteral(
   <!DOCTYPE html>
@@ -315,7 +362,7 @@ void handleRoot() {
   <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>ESP32 Miner TRX - SHA256 REAL</title>
+      <title>ESP32 Miner - Configurável</title>
       <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 
@@ -324,10 +371,10 @@ void handleRoot() {
               font-family: Arial, sans-serif;
               padding: 20px;
           }
-          .container { max-width: 800px; margin: 0 auto; }
+          .container { max-width: 1000px; margin: 0 auto; }
           .header { 
               text-align: center; 
-              margin-bottom: 30px;
+              margin-bottom: 20px;
               padding: 20px;
               background: #1e1e1e;
               border-radius: 10px;
@@ -340,6 +387,27 @@ void handleRoot() {
               border-radius: 10px;
               border-left: 4px solid #00ff00;
           }
+          .config-grid { 
+              display: grid; 
+              grid-template-columns: 1fr 1fr; 
+              gap: 15px;
+              margin-bottom: 15px;
+          }
+          .form-group { margin-bottom: 12px; }
+          .form-label { 
+              display: block; 
+              margin-bottom: 5px; 
+              color: #cccccc;
+              font-weight: bold;
+          }
+          .form-input { 
+              width: 100%; 
+              padding: 10px; 
+              border: 1px solid #444; 
+              border-radius: 5px; 
+              background: #2d2d2d; 
+              color: white;
+          }
           .status { display: flex; justify-content: space-between; margin: 5px 0; }
           .label { color: #cccccc; }
           .value { font-weight: bold; }
@@ -349,33 +417,72 @@ void handleRoot() {
               background: #00ff00; 
               color: #000; 
               border: none; 
-              padding: 10px 20px; 
+              padding: 12px 24px; 
               margin: 5px;
               border-radius: 5px; 
               cursor: pointer;
               font-weight: bold;
+              font-size: 14px;
           }
           .button.delete { background: #ff4444; color: white; }
+          .button.secondary { background: #2196F3; color: white; }
           .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-          .referral-badge { 
+          .badge { 
               background: #4CAF50; 
               color: white; 
-              padding: 5px 10px; 
-              border-radius: 15px; 
-              font-size: 12px;
-              margin-left: 10px;
-          }
-          .hardware-badge { 
-              background: #2196F3; 
-              color: white; 
-              padding: 5px 10px; 
-              border-radius: 15px; 
-              font-size: 12px;
+              padding: 3px 8px; 
+              border-radius: 10px; 
+              font-size: 11px;
               margin-left: 5px;
           }
-          @media (max-width: 600px) { .stats-grid { grid-template-columns: 1fr; } }
+          .button-group { text-align: center; margin: 15px 0; }
+          @media (max-width: 768px) { 
+              .config-grid, .stats-grid { grid-template-columns: 1fr; } 
+          }
       </style>
       <script>
+          function loadConfig() {
+              fetch('/api/config')
+                  .then(response => response.json())
+                  .then(data => {
+                      document.getElementById('wifiSsid').value = data.wifi_ssid || '';
+                      document.getElementById('wifiPassword').value = data.wifi_password || '';
+                      document.getElementById('poolHost').value = data.pool_host || '';
+                      document.getElementById('poolPort').value = data.pool_port || '';
+                      document.getElementById('wallet').value = data.wallet || '';
+                      document.getElementById('coinType').value = data.coin_type || 'TRX';
+                      document.getElementById('workerName').value = data.worker_name || '';
+                  });
+          }
+          
+          function saveConfig() {
+              const config = {
+                  wifi_ssid: document.getElementById('wifiSsid').value,
+                  wifi_password: document.getElementById('wifiPassword').value,
+                  pool_host: document.getElementById('poolHost').value,
+                  pool_port: document.getElementById('poolPort').value,
+                  wallet: document.getElementById('wallet').value,
+                  coin_type: document.getElementById('coinType').value,
+                  worker_name: document.getElementById('workerName').value
+              };
+              
+              fetch('/api/save-config', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(config)
+              })
+              .then(response => response.json())
+              .then(data => {
+                  alert(data.message);
+                  if(data.success) {
+                      setTimeout(() => {
+                          fetch('/api/restart-miner')
+                              .then(() => alert('Reiniciando minerador...'));
+                      }, 1000);
+                  }
+              });
+          }
+          
           function updateStats() {
               fetch('/api/stats')
                   .then(response => response.json())
@@ -391,62 +498,104 @@ void handleRoot() {
                       document.getElementById('hashrate').innerHTML = data.hashrate + ' H/s';
                       document.getElementById('shares').innerHTML = data.shares;
                       document.getElementById('rejected').innerHTML = data.shares_rejected;
-                      document.getElementById('worker').innerHTML = data.worker;
-                      document.getElementById('pool').innerHTML = data.pool;
-                      document.getElementById('coin').innerHTML = data.coin;
-                      document.getElementById('wallet').innerHTML = data.wallet;
-                  })
-                  .catch(error => console.error('Erro:', error));
+                      document.getElementById('currentWorker').innerHTML = data.worker;
+                      document.getElementById('currentPool').innerHTML = data.pool;
+                      document.getElementById('currentCoin').innerHTML = data.coin;
+                      document.getElementById('currentWallet').innerHTML = data.wallet;
+                  });
           }
           
           function deleteLogs() {
-              if(confirm('Tem certeza que deseja apagar todos os logs?')) {
-                  fetch('/api/delete-logs')
-                      .then(response => response.json())
-                      .then(data => {
-                          alert(data.message);
-                      });
+              if(confirm('Apagar todos os logs?')) {
+                  fetch('/api/delete-logs').then(() => alert('Logs apagados!'));
               }
           }
           
-          setInterval(updateStats, 5000);
-          document.addEventListener('DOMContentLoaded', updateStats);
+          function restartMiner() {
+              if(confirm('Reiniciar minerador com configuração atual?')) {
+                  fetch('/api/restart-miner').then(() => alert('Reiniciando...'));
+              }
+          }
+          
+          setInterval(updateStats, 3000);
+          document.addEventListener('DOMContentLoaded', () => {
+              loadConfig();
+              updateStats();
+          });
       </script>
   </head>
   <body>
       <div class="container">
           <div class="header">
-              <h1>⚡ ESP32 Miner TRX - SHA256 REAL</h1>
-              <p>Mineração com Aceleração de Hardware <span class="hardware-badge">HARDWARE ACCEL</span></p>
-              <p>Worker: <span id="worker">Carregando...</span> <span class="referral-badge">REFERRAL ATIVO</span></p>
+              <h1>⚡ ESP32 Miner - Configurável</h1>
+              <p>Configure e monitore tudo em uma única página</p>
+          </div>
+          
+          <div class="card">
+              <h2>⚙️ Configuração do Minerador</h2>
+              <div class="config-grid">
+                  <div class="form-group">
+                      <label class="form-label">SSID WiFi:</label>
+                      <input type="text" id="wifiSsid" class="form-input" placeholder="Nome da rede WiFi">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Senha WiFi:</label>
+                      <input type="password" id="wifiPassword" class="form-input" placeholder="Senha da rede">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Pool:</label>
+                      <input type="text" id="poolHost" class="form-input" placeholder="ex: sha256.unmineable.com">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Porta:</label>
+                      <input type="text" id="poolPort" class="form-input" placeholder="ex: 3333">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Carteira:</label>
+                      <input type="text" id="wallet" class="form-input" placeholder="Sua carteira">
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Coin:</label>
+                      <select id="coinType" class="form-input">
+                          <option value="TRX">TRON (TRX)</option>
+                          <option value="BTC">Bitcoin (BTC)</option>
+                          <option value="ETH">Ethereum (ETH)</option>
+                          <option value="DOGE">Dogecoin (DOGE)</option>
+                      </select>
+                  </div>
+                  <div class="form-group">
+                      <label class="form-label">Worker Name:</label>
+                      <input type="text" id="workerName" class="form-input" placeholder="ex: miner01#referral">
+                  </div>
+              </div>
+              <div class="button-group">
+                  <button class="button" onclick="saveConfig()">💾 Salvar Configuração</button>
+                  <button class="button secondary" onclick="restartMiner()">🔄 Reiniciar Minerador</button>
+              </div>
           </div>
           
           <div class="card">
               <h2>📡 Status da Conexão</h2>
               <div class="status">
                   <span class="label">WiFi:</span>
-                  <span class="value" id="wifiStatus">Carregando...</span>
+                  <span class="value" id="wifiStatus">...</span>
               </div>
               <div class="status">
                   <span class="label">Status Pool:</span>
-                  <span class="value" id="connectionStatus">Carregando...</span>
+                  <span class="value" id="connectionStatus">...</span>
               </div>
               <div class="status">
-                  <span class="label">IP:</span>
-                  <span class="value" id="ipAddress">Carregando...</span>
-              </div>
-              <div class="status">
-                  <span class="label">MAC:</span>
-                  <span class="value" id="macAddress">Carregando...</span>
+                  <span class="label">IP Local:</span>
+                  <span class="value" id="ipAddress">...</span>
               </div>
               <div class="status">
                   <span class="label">Tempo Online:</span>
-                  <span class="value" id="uptime">Carregando...</span>
+                  <span class="value" id="uptime">...</span>
               </div>
           </div>
           
           <div class="card">
-              <h2>⛏️ Status da Mineração REAL</h2>
+              <h2>⛏️ Status da Mineração</h2>
               <div class="stats-grid">
                   <div class="status">
                       <span class="label">Hashes Calculados:</span>
@@ -465,28 +614,30 @@ void handleRoot() {
                       <span class="value" id="rejected">0</span>
                   </div>
                   <div class="status">
-                      <span class="label">Pool:</span>
-                      <span class="value" id="pool">Carregando...</span>
+                      <span class="label">Worker Atual:</span>
+                      <span class="value" id="currentWorker">...</span>
+                  </div>
+                  <div class="status">
+                      <span class="label">Pool Atual:</span>
+                      <span class="value" id="currentPool">...</span>
                   </div>
                   <div class="status">
                       <span class="label">Coin:</span>
-                      <span class="value" id="coin">Carregando...</span>
+                      <span class="value" id="currentCoin">...</span>
                   </div>
-              </div>
-          </div>
-          
-          <div class="card">
-              <h2>💰 Carteira</h2>
-              <div class="status">
-                  <span class="label">Endereço TRX:</span>
-                  <span class="value" id="wallet">Carregando...</span>
+                  <div class="status">
+                      <span class="label">Carteira:</span>
+                      <span class="value" id="currentWallet">...</span>
+                  </div>
               </div>
           </div>
           
           <div class="card">
               <h2>🛠️ Controles</h2>
-              <button class="button" onclick="updateStats()">🔄 Atualizar</button>
-              <button class="button delete" onclick="deleteLogs()">🗑️ Apagar Logs</button>
+              <div class="button-group">
+                  <button class="button" onclick="updateStats()">🔄 Atualizar Status</button>
+                  <button class="button delete" onclick="deleteLogs()">🗑️ Apagar Logs</button>
+              </div>
           </div>
       </div>
   </body>
@@ -517,68 +668,135 @@ void handleApiStats() {
   doc["hashrate"] = String(hashrate, 2);
   doc["shares"] = shares_submitted;
   doc["shares_rejected"] = shares_rejected;
-  doc["worker"] = WORKER_NAME;
-  doc["pool"] = String(POOL_HOST) + ":" + String(POOL_PORT);
-  doc["coin"] = "TRON (TRX) - SHA256 REAL";
-  doc["wallet"] = TRX_WALLET;
+  doc["worker"] = worker_name;
+  doc["pool"] = pool_host + ":" + pool_port;
+  doc["coin"] = coin_type;
+  doc["wallet"] = trx_wallet;
   
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
 }
 
-void handleDeleteLogs() {
-  deleteLogs();
-  
-  DynamicJsonDocument doc(256);
-  doc["message"] = "Logs apagados com sucesso!";
+void handleApiConfig() {
+  DynamicJsonDocument doc(1024);
+  doc["wifi_ssid"] = wifi_ssid;
+  doc["wifi_password"] = wifi_password;
+  doc["pool_host"] = pool_host;
+  doc["pool_port"] = pool_port;
+  doc["wallet"] = trx_wallet;
+  doc["coin_type"] = coin_type;
+  doc["worker_name"] = worker_name;
   
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
+}
+
+void handleSaveConfig() {
+  if (server.hasArg("plain")) {
+    DynamicJsonDocument doc(1024);
+    DeserializationError error = deserializeJson(doc, server.arg("plain"));
+    
+    if (!error) {
+      wifi_ssid = doc["wifi_ssid"].as<String>();
+      wifi_password = doc["wifi_password"].as<String>();
+      pool_host = doc["pool_host"].as<String>();
+      pool_port = doc["pool_port"].as<String>();
+      trx_wallet = doc["wallet"].as<String>();
+      coin_type = doc["coin_type"].as<String>();
+      worker_name = doc["worker_name"].as<String>();
+      
+      saveConfig();
+      
+      DynamicJsonDocument responseDoc(256);
+      responseDoc["success"] = true;
+      responseDoc["message"] = "Configuração salva!";
+      
+      String response;
+      serializeJson(responseDoc, response);
+      server.send(200, "application/json", response);
+      return;
+    }
+  }
+  
+  DynamicJsonDocument responseDoc(256);
+  responseDoc["success"] = false;
+  responseDoc["message"] = "Erro ao salvar configuração";
+  String response;
+  serializeJson(responseDoc, response);
+  server.send(400, "application/json", response);
+}
+
+void handleRestartMiner() {
+  Serial.println("🔄 Reiniciando minerador com nova configuração...");
+  
+  // Desconectar e reconectar
+  if (poolClient.connected()) {
+    poolClient.stop();
+  }
+  poolConnected = false;
+  
+  // Reconectar WiFi se necessário
+  if (WiFi.status() != WL_CONNECTED) {
+    connectToWiFi();
+  }
+  
+  // Tentar conectar à pool
+  if (connectToMiningPool()) {
+    Serial.println("✅ Minerador reiniciado com sucesso!");
+  }
+  
+  server.send(200, "application/json", "{\"status\":\"restarted\"}");
+}
+
+void handleDeleteLogs() {
+  deleteLogs();
+  server.send(200, "application/json", "{\"message\":\"Logs apagados\"}");
 }
 
 void setupWebServer() {
   server.on("/", handleRoot);
   server.on("/api/stats", handleApiStats);
+  server.on("/api/config", handleApiConfig);
+  server.on("/api/save-config", HTTP_POST, handleSaveConfig);
+  server.on("/api/restart-miner", handleRestartMiner);
   server.on("/api/delete-logs", handleDeleteLogs);
   
   server.begin();
   Serial.println("✅ Servidor HTTP iniciado!");
-  Serial.println("🌐 Acesse: http://" + WiFi.localIP().toString());
 }
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n⚡ MINERADOR SHA256 REAL COM ACELERAÇÃO DE HARDWARE ⚡");
-  Serial.println("💰 Worker com Referral: " + WORKER_NAME);
-  Serial.println("===================================================");
+  Serial.println("\n⚡ ESP32 MINER CONFIGURÁVEL ⚡");
+  Serial.println("==============================");
+  
+  // Carregar configuração salva
+  loadConfig();
   
   // Inicializar acelerador SHA-256
   init_sha256_accelerator();
   Serial.println("✅ Acelerador SHA-256 inicializado!");
   
-  // Inicializar SPIFFS
-  if (!SPIFFS.begin(true)) {
-    Serial.println("❌ Erro ao montar SPIFFS");
-  }
-  
+  // Conectar WiFi
   connectToWiFi();
   
   // Configurar mDNS
   if (!MDNS.begin("esp32-miner")) {
     Serial.println("❌ Erro ao iniciar mDNS");
   } else {
-    Serial.println("✅ mDNS iniciado! Acesse: http://esp32-miner.local");
+    Serial.println("✅ mDNS: http://esp32-miner.local");
   }
   
   start_time = millis();
   setupWebServer();
   
+  // Conectar à pool
   if (connectToMiningPool()) {
-    // Subscription e autorização nas respostas
+    Serial.println("⛏️ Minerador pronto!");
   }
 }
 
@@ -594,12 +812,10 @@ void loop() {
       last_ping = millis();
     }
     
-    // Mineração REAL se tiver trabalho
     if (current_job_id != "") {
       processMiningJob();
     }
     
-    // Atualizar hashrate a cada 2 minutos
     static unsigned long last_hashrate_update = 0;
     if (millis() - last_hashrate_update > 120000) {
       submitHashrate();
@@ -614,7 +830,6 @@ void loop() {
     delay(5000);
   }
   
-  // Salvar log a cada 5 minutos
   if (millis() - last_log_save > 300000) {
     saveLog();
     last_log_save = millis();
