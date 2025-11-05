@@ -7,8 +7,8 @@
 #include "sha256_acelerado.h"
 
 // ========== CONFIGURAÇÕES ==========
-const char* ssid = "A";
-const char* password = "A";
+const char* ssid = "a";
+const char* password = "a";
 const char* TRX_WALLET = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
 
 const char* POOL_HOST = "sha256.unmineable.com";
@@ -136,10 +136,20 @@ void processMiningNotify(JsonArray params) {
     current_nonce = 0;
     memcpy(job_header + 76, &current_nonce, 4);
     
-    // Target simplificado (dificuldade baixa para ESP32)
-    memset(job_target, 0xFF, 32);
-    job_target[31] = 0x1F; // Target mais fácil
-    
+    // ✅ CORRETO (compatível com dificuldade 16384):
+    memset(job_target, 0x00, 32);  // Começa com zeros
+    job_target[0] = 0x00;
+    job_target[1] = 0x00; 
+    job_target[2] = 0x00;
+    job_target[3] = 0x00;
+    job_target[4] = 0x00;
+    job_target[5] = 0x00;
+    job_target[6] = 0x00;
+    job_target[7] = 0x00;
+    job_target[29] = 0xFF;  // Últimos bytes mais "fáceis"
+    job_target[30] = 0xFF;
+    job_target[31] = 0xFF;
+
     Serial.println("✅ Trabalho configurado. Iniciando mineração real SHA-256!");
 }
 
