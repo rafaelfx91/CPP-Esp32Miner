@@ -52,19 +52,21 @@ Estatísticas detalhadas de hashrate, shares e uptime disponíveis via API REST 
 
 Item
 Detalhe
-✅ ESP32
+ESP32
 Necessário um modelo com suporte ao acelerador SHA-256 (a maioria dos modelos modernos).
-✅ 4x LEDs
+4x LEDs
 Para indicadores visuais de status.
-✅ Fonte de Alimentação
+Fonte de Alimentação
 Estável, com capacidade de corrente de ≥500mA para garantir a estabilidade da mineração.
-✅ Conexão WiFi
+Conexão WiFi
 Rede 2.4GHz para conexão à pool de mineração.
 
 
 📚 Bibliotecas e Software
 
 Este projeto é desenvolvido para Arduino IDE ou PlatformIO.
+
+As bibliotecas necessárias são:
 
 C++
 
