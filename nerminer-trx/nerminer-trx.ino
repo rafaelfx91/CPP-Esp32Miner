@@ -16,6 +16,13 @@ String worker_name = "esp32-miner#cub7-5a3h";
 String coin_type = "TRX";
 // ==========================================
 
+// ========== PINOS DOS LEDs ==========
+#define LED_AP_MODE      18  // D18 - Modo AP
+#define LED_WIFI_CONNECT 19  // D19 - WiFi Conectado
+#define LED_MINING       22  // D22 - Minerando
+#define LED_SHARES       23  // D23 - Shares Aceitos
+// ====================================
+
 WiFiClient poolClient;
 WebServer server(80);
 
@@ -26,7 +33,9 @@ unsigned long shares_rejected = 0;
 unsigned long start_time = 0;
 unsigned long last_log_save = 0;
 unsigned long last_pool_activity = 0;
+unsigned long last_led_blink = 0;
 bool poolConnected = false;
+bool isMiningActive = false;
 String current_job_id = "";
 
 // Variáveis para mineração real
@@ -51,6 +60,46 @@ void reverseBytes(uint8_t* data, size_t len) {
         data[i] = data[len - 1 - i];
         data[len - 1 - i] = temp;
     }
+}
+
+// ========== SISTEMA DE LEDs ==========
+void setupLEDs() {
+  pinMode(LED_AP_MODE, OUTPUT);
+  pinMode(LED_WIFI_CONNECT, OUTPUT);
+  pinMode(LED_MINING, OUTPUT);
+  pinMode(LED_SHARES, OUTPUT);
+  
+  // Inicializar todos desligados
+  digitalWrite(LED_AP_MODE, LOW);
+  digitalWrite(LED_WIFI_CONNECT, LOW);
+  digitalWrite(LED_MINING, LOW);
+  digitalWrite(LED_SHARES, LOW);
+  
+  Serial.println("✅ LEDs inicializados: D18(AP), D19(WiFi), D22(Minerando), D23(Shares)");
+}
+
+void updateLEDs() {
+  unsigned long currentMillis = millis();
+  
+  // D18 - Modo AP (Amarelo fixo)
+  digitalWrite(LED_AP_MODE, isAPMode);
+  
+  // D19 - WiFi Conectado (Verde fixo)
+  digitalWrite(LED_WIFI_CONNECT, wifiConnected);
+  
+  // D22 - Minerando (Verde piscante)
+  if (poolConnected && isMiningActive) {
+    // Piscar a cada 500ms
+    if (currentMillis - last_led_blink >= 500) {
+      digitalWrite(LED_MINING, !digitalRead(LED_MINING));
+      last_led_blink = currentMillis;
+    }
+  } else {
+    digitalWrite(LED_MINING, LOW);
+  }
+  
+  // D23 - Shares Aceitos (Verde fixo quando > 0)
+  digitalWrite(LED_SHARES, shares_submitted > 0);
 }
 
 // ========== SISTEMA DE CONFIGURAÇÃO ==========
@@ -121,6 +170,7 @@ bool connectToWiFi() {
     delay(500);
     Serial.print(".");
     attempts++;
+    updateLEDs(); // Atualizar LEDs durante tentativa
   }
   
   if (WiFi.status() == WL_CONNECTED) {
@@ -206,6 +256,7 @@ void processMiningNotify(JsonArray params) {
     String ntime = params[7].as<const char*>();
     
     Serial.println("🎯 NOVO TRABALHO: " + current_job_id);
+    isMiningActive = true;
     
     // Montar cabeçalho de 80 bytes
     memset(job_header, 0, 80);
@@ -388,7 +439,7 @@ void deleteLogs() {
   Serial.println("✅ Logs apagados!");
 }
 
-// ========== SERVIDOR WEB ATUALIZADO ==========
+// ========== SERVIDOR WEB ==========
 void handleRoot() {
   String html = R"rawliteral(
   <!DOCTYPE html>
@@ -422,6 +473,32 @@ void handleRoot() {
               border-radius: 10px;
               border-left: 4px solid #00ff00;
           }
+          .led-status { 
+              display: flex; 
+              justify-content: space-around; 
+              margin: 15px 0;
+              padding: 15px;
+              background: #2d2d2d;
+              border-radius: 8px;
+          }
+          .led-item { text-align: center; }
+          .led-label { font-size: 12px; color: #cccccc; margin-bottom: 5px; }
+          .led-indicator { 
+              width: 20px; 
+              height: 20px; 
+              border-radius: 50%; 
+              margin: 0 auto;
+              border: 2px solid #444;
+          }
+          .led-on { background: #00ff00; box-shadow: 0 0 10px #00ff00; }
+          .led-off { background: #333; }
+          .led-ap { background: #ff9900; box-shadow: 0 0 10px #ff9900; }
+          .led-blinking { animation: blink 1s infinite; }
+          @keyframes blink { 
+              0% { opacity: 1; } 
+              50% { opacity: 0.3; } 
+              100% { opacity: 1; } 
+          }
           .config-grid { 
               display: grid; 
               grid-template-columns: 1fr 1fr; 
@@ -448,7 +525,6 @@ void handleRoot() {
           .value { font-weight: bold; }
           .connected { color: #00ff00; }
           .disconnected { color: #ff0000; }
-          .ap-indicator { color: #ff9900; }
           .button { 
               background: #00ff00; 
               color: #000; 
@@ -482,6 +558,17 @@ void handleRoot() {
           }
       </style>
       <script>
+          function updateLEDs() {
+              // Simular LEDs baseado no status
+              const apLed = document.getElementById('ledAP');
+              const wifiLed = document.getElementById('ledWiFi');
+              const miningLed = document.getElementById('ledMining');
+              const sharesLed = document.getElementById('ledShares');
+              
+              // Esses seriam atualizados via API em produção
+              // Por enquanto é apenas visual
+          }
+          
           function loadConfig() {
               fetch('/api/config')
                   .then(response => response.json())
@@ -558,6 +645,16 @@ void handleRoot() {
                           document.getElementById('staIndicator').style.display = 'block';
                       }
                       
+                      // Atualizar LEDs visuais
+                      document.getElementById('ledAP').className = data.ap_mode ? 
+                          'led-indicator led-ap' : 'led-indicator led-off';
+                      document.getElementById('ledWiFi').className = data.wifi_connected ? 
+                          'led-indicator led-on' : 'led-indicator led-off';
+                      document.getElementById('ledMining').className = data.pool_connected ? 
+                          'led-indicator led-on led-blinking' : 'led-indicator led-off';
+                      document.getElementById('ledShares').className = data.shares > 0 ? 
+                          'led-indicator led-on' : 'led-indicator led-off';
+                      
                       // Atualizar stats
                       document.getElementById('wifiStatus').innerHTML = data.wifi_ssid;
                       document.getElementById('connectionStatus').innerHTML = data.pool_connected ? 
@@ -595,7 +692,7 @@ void handleRoot() {
               }
           }
           
-          setInterval(updateStats, 3000);
+          setInterval(updateStats, 2000);
           document.addEventListener('DOMContentLoaded', () => {
               loadConfig();
               updateStats();
@@ -613,6 +710,28 @@ void handleRoot() {
               </div>
               <div id="staIndicator" style="display: none;">
                   <p>⛏️ <strong>Modo Mineração</strong> - Conectado na rede WiFi</p>
+              </div>
+          </div>
+          
+          <div class="card">
+              <h2>💡 Status dos LEDs</h2>
+              <div class="led-status">
+                  <div class="led-item">
+                      <div class="led-label">D18 - Modo AP</div>
+                      <div id="ledAP" class="led-indicator led-off"></div>
+                  </div>
+                  <div class="led-item">
+                      <div class="led-label">D19 - WiFi</div>
+                      <div id="ledWiFi" class="led-indicator led-off"></div>
+                  </div>
+                  <div class="led-item">
+                      <div class="led-label">D22 - Minerando</div>
+                      <div id="ledMining" class="led-indicator led-off"></div>
+                  </div>
+                  <div class="led-item">
+                      <div class="led-label">D23 - Shares</div>
+                      <div id="ledShares" class="led-indicator led-off"></div>
+                  </div>
               </div>
           </div>
           
@@ -711,7 +830,6 @@ void handleRoot() {
                       <select id="coinType" class="form-input">
                           <option value="TRX">TRON (TRX)</option>
                           <option value="BTC">Bitcoin (BTC)</option>
-                          <option value="ETH">Ethereum (ETH)</option>
                           <option value="DOGE">Dogecoin (DOGE)</option>
                       </select>
                   </div>
@@ -741,7 +859,6 @@ void handleRoot() {
   
   server.send(200, "text/html", html);
 }
-
 void handleApiStats() {
   DynamicJsonDocument doc(1024);
   
@@ -769,6 +886,7 @@ void handleApiStats() {
   doc["wallet"] = trx_wallet;
   doc["ap_mode"] = isAPMode;
   doc["wifi_connected"] = wifiConnected;
+  doc["mining_active"] = isMiningActive;
   
   String response;
   serializeJson(doc, response);
@@ -852,6 +970,7 @@ void handleRestartMiner() {
     poolClient.stop();
   }
   poolConnected = false;
+  isMiningActive = false;
   
   // Reconectar WiFi se necessário
   if (WiFi.status() != WL_CONNECTED) {
@@ -859,7 +978,7 @@ void handleRestartMiner() {
   }
   
   // Tentar conectar à pool
-  if (connectToMiningPool()) {
+  if (wifiConnected && connectToMiningPool()) {
     Serial.println("✅ Minerador reiniciado com sucesso!");
   }
   
@@ -895,8 +1014,26 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n⚡ ESP32 MINER DUAL MODE ⚡");
-  Serial.println("===========================");
+  Serial.println("\n⚡ ESP32 MINER COM LEDs ⚡");
+  Serial.println("=========================");
+  
+  // Inicializar LEDs primeiro
+  setupLEDs();
+  
+  // Piscar LEDs inicialmente para teste
+  Serial.println("🔴 Testando LEDs...");
+  for(int i = 0; i < 3; i++) {
+    digitalWrite(LED_AP_MODE, HIGH);
+    digitalWrite(LED_WIFI_CONNECT, HIGH);
+    digitalWrite(LED_MINING, HIGH);
+    digitalWrite(LED_SHARES, HIGH);
+    delay(200);
+    digitalWrite(LED_AP_MODE, LOW);
+    digitalWrite(LED_WIFI_CONNECT, LOW);
+    digitalWrite(LED_MINING, LOW);
+    digitalWrite(LED_SHARES, LOW);
+    delay(200);
+  }
   
   // Carregar configuração salva
   loadConfig();
@@ -926,15 +1063,26 @@ void setup() {
   } else if (!wifiConnected) {
     Serial.println("⏳ Aguardando configuração WiFi via modo AP...");
   }
+  
+  Serial.println("💡 LEDs configurados:");
+  Serial.println("   D18 - Amarelo: Modo AP");
+  Serial.println("   D19 - Verde: WiFi Conectado");
+  Serial.println("   D22 - Verde Piscante: Minerando");
+  Serial.println("   D23 - Verde Fixo: Shares Aceitos");
 }
 
 void loop() {
   server.handleClient();
   
+  // Atualizar LEDs continuamente
+  updateLEDs();
+  
   // Verificar se WiFi caiu e ativar AP se necessário
   if (wifiConnected && WiFi.status() != WL_CONNECTED) {
     Serial.println("❌ WiFi desconectado - Ativando modo AP");
     wifiConnected = false;
+    isMiningActive = false;
+    poolConnected = false;
     startAPMode();
   }
   
@@ -950,6 +1098,8 @@ void loop() {
     
     if (current_job_id != "") {
       processMiningJob();
+    } else {
+      isMiningActive = false;
     }
     
     static unsigned long last_hashrate_update = 0;
@@ -959,6 +1109,7 @@ void loop() {
     }
   } else if (wifiConnected && !poolClient.connected()) {
     // Tentar reconectar à pool
+    isMiningActive = false;
     Serial.println("🔁 Reconectando à pool...");
     poolConnected = false;
     if (connectToMiningPool()) {
