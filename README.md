@@ -18,9 +18,7 @@ Sistema completo de mineração cryptocurrency com ESP32, interface web responsi
     📊 Monitoramento<br>
     🛠️ Solução de Problemas<br>
 
-<img src="https://github.com/rafaelfx91/CPP-Esp32Miner/blob/main/nerminer-trx/ESP32%20Diagrama.png" width="400" height="400" alt="Diagrama ESP32"/><br>
-<img src="https://github.com/rafaelfx91/CPP-Esp32Miner/blob/main/nerminer-trx/wifi1.png"  width="400" height="400" alt="WIFI1"/><br>
-<img src="https://github.com/rafaelfx91/CPP-Esp32Miner/blob/main/nerminer-trx/wifi2.png"  width="400" height="400" alt="WIFI2"/><br>
+<img src="https://github.com/rafaelfx91/CPP-Esp32Miner/blob/main/nerminer-trx/ESP32%20Diagrama.png" width="400" height="400" alt="Diagrama ESP32"/><img src="https://github.com/rafaelfx91/CPP-Esp32Miner/blob/main/nerminer-trx/wifi1.png"  width="400" height="400" alt="WIFI1"/><img src="https://github.com/rafaelfx91/CPP-Esp32Miner/blob/main/nerminer-trx/wifi2.png"  width="400" height="400" alt="WIFI2"/><br>
     
 <br>
 🔧 Funcionalidades<br><br>
