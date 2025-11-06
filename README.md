@@ -1,197 +1,257 @@
-<!DOCTYPE html>
-<html>
-<head>
-</head>
-<body>
-  
-<h1 align="center">⚡ ESP32 SHA-256 Crypto Miner</h1>
+⚡ ESP32 SHA-256 Crypto Miner
 
 <p align="center">
-  <strong>Minerador de criptomoedas completo com interface web e LEDs indicadores</strong>
-  <br>
-  <em>Mineração real SHA-256 • Interface web responsiva • Sistema dual WiFi</em>
-</p>
+<strong>Minerador de criptomoedas completo com interface web e LEDs indicadores, otimizado para o ESP32.</strong>
+    
+
+  <em>Mineração real SHA-256 • Interface web responsiva • Sistema dual WiFi para configuração</em>
+</p> <p align="center">
+  <img src="https://img.shields.io/badge/ESP32-SHA256%20Miner-green?style=for-the-badge&logo=espressif" alt="ESP32">
+  <img src="https://img.shields.io/badge/Platform-Arduino%20%7C%20PlatformIO-blue?style=for-the-badge&logo=arduino" alt="Platform">
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License">
+  <img src="https://img.shields.io/badge/Version-1.0.0-orange?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/github/stars/seu-usuario/esp32-miner?style=for-the-badge&color=gold" alt="GitHub Stars">
+  <img src="https://img.shields.io/github/forks/seu-usuario/esp32-miner?style=for-the-badge&color=lightgrey" alt="GitHub Forks">
+</p> <div align="center">   <p>
+    🎯 **Mineração Real** • 🌐 **Interface Web** • 📱 **Responsivo** • 💡 **LEDs Indicadores** • 🔧 **Fácil Configuração**
+  </p>   <!-- Adicione um GIF ou imagem de demonstração aqui para um impacto visual imediato -->   <!-- <img src="caminho/para/seu/gif-demo.gif" alt="Demonstração do Minerador em Ação" width="600"/> --> </div>
+
+
+
+
+🌟 Destaques do Projeto
+
+Este projeto transforma um microcontrolador ESP32 em um minerador de criptomoedas SHA-256 totalmente funcional. Utilizando o acelerador de hardware do ESP32, ele oferece uma solução de mineração compacta e de baixo consumo, ideal para fins educacionais e experimentais.
+
+Recurso
+Descrição Detalhada
+⚡ Mineração Real SHA-256
+Implementação otimizada que aproveita o acelerador de hardware do ESP32 para o cálculo do Double SHA-256.
+🌐 Interface Web Responsiva
+Servidor web integrado para controle completo do minerador (configuração, status, reinício) acessível via navegador em qualquer dispositivo.
+📶 Sistema Dual WiFi
+Alterna automaticamente entre o modo STA (para mineração) e AP (para configuração inicial ou reconfiguração).
+💡 LEDs Indicadores Visuais
+4 LEDs dedicados para fornecer status em tempo real do dispositivo (Modo AP, Conexão WiFi, Mineração Ativa, Shares Aceitos).
+💾 Configuração Persistente
+Salva todas as configurações (WiFi, Pool, Carteira) na memória SPIFFS do ESP32, garantindo persistência após reinícios.
+🎯 Suporte Multi-Pool (Stratum)
+Compatível com pools que utilizam o protocolo Stratum, como Unmineable, permitindo a mineração de diversas moedas.
+💰 Suporte Multi-Moedas
+Permite a mineração de moedas como TRX, BTC, DOGE e outras, dependendo da pool Stratum configurada (ex: Unmineable).
+📊 Monitoramento em Tempo Real
+Estatísticas detalhadas de hashrate, shares e uptime disponíveis via API REST e na interface web.
+
+
+
+
+
+🛠️ Instalação e Configuração Rápida
+
+📋 Pré-requisitos de Hardware
+
+Item
+Detalhe
+✅ ESP32
+Necessário um modelo com suporte ao acelerador SHA-256 (a maioria dos modelos modernos).
+✅ 4x LEDs
+Para indicadores visuais de status.
+✅ Fonte de Alimentação
+Estável, com capacidade de corrente de ≥500mA para garantir a estabilidade da mineração.
+✅ Conexão WiFi
+Rede 2.4GHz para conexão à pool de mineração.
+
+
+📚 Bibliotecas e Software
+
+Este projeto é desenvolvido para Arduino IDE ou PlatformIO.
+
+C++
+
+
+// Bibliotecas necessárias
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ArduinoJson.h>
+#include <SPIFFS.h>
+#include "sha256_acelerado.h" // Biblioteca customizada para aceleração de hardware
+
+
+🚀 Guia de Início
+
+1.
+📥 Clone o Repositório:
+
+2.
+🔌 Conexões dos LEDs: Conecte os LEDs aos seguintes pinos GPIO do seu ESP32:
+
+3.
+⚙️ Primeira Execução:
+
+•
+Carregue o código no seu ESP32 (via Arduino IDE ou PlatformIO).
+
+•
+O ESP32 iniciará no modo AP (Access Point) se não encontrar configurações salvas.
+
+•
+Conecte-se à rede WiFi ESP32-Miner-Config (senha padrão: 12345678).
+
+•
+Acesse o endereço http://192.168.4.1 no seu navegador.
+
+•
+Configure sua rede WiFi, dados da pool de mineração e carteira. O dispositivo irá reiniciar e começar a mineração.
+
+
+
+
+
+
+⛏️ Detalhes da Mineração
+
+🔄 Protocolo Stratum
+
+O minerador se comunica com a pool utilizando o protocolo Stratum.
+
+mermaid
+
+graph LR
+    A[ESP32 Miner] --> B(Conectar à Pool);
+    B --> C{Enviar: Subscribe};
+    C --> D{Enviar: Authorize};
+    D --> E[Pool Envia: Notify - Jobs];
+    E --> F[ESP32 Calcula Hash];
+    F -- Envia: Submit - Shares --> G[Pool Aceita/Rejeita];
+    G --> H[💰 Rewards (se aceito)];
+
+⚡ Algoritmo SHA-256 Otimizado
+
+O coração do projeto é a otimização do algoritmo SHA-256:
+
+•
+Aceleração por Hardware: Utiliza a unidade de aceleração criptográfica do ESP32 para o cálculo do hash.
+
+•
+Double SHA-256: Realiza o cálculo duplo necessário para a mineração de Bitcoin e moedas compatíveis.
+
+•
+Submissão Inteligente: Envia shares para a pool somente após a verificação automática do target.
+
+
+
+
+📊 Performance e Monitoramento
+
+🎯 Métricas Típicas
+
+É importante notar que o ESP32 é um dispositivo de baixo poder.
+
+Métrica
+Valor Típico
+Descrição
+Hashrate
+40-60 H/s
+Poder de processamento (Hashes por segundo).
+Shares/Hora
+0.1 - 0.5
+Média de shares aceitos pela pool por hora (varia com a dificuldade).
+Consumo
+~500mA
+Consumo elétrico durante a mineração ativa.
+Temperatura
+45-65°C
+Temperatura de operação (monitorar a estabilidade).
+
+
+🛠️ API Endpoints
+
+A interface web e o monitoramento utilizam os seguintes endpoints REST:
+
+Endpoint
+Método
+Descrição
+/api/stats
+GET
+📊 Retorna estatísticas em tempo real (hashrate, shares, uptime).
+/api/config
+GET
+⚙️ Retorna a configuração atual salva.
+/api/save-config
+POST
+💾 Salva uma nova configuração (WiFi, Pool, Carteira).
+/api/scan-wifi
+GET
+🔍 Lista as redes WiFi disponíveis.
+/api/restart-miner
+POST
+🔄 Reinicia o minerador.
+/api/enable-ap
+POST
+📶 Força a ativação do modo AP para reconfiguração.
+/api/delete-logs
+POST
+🗑️ Apaga os logs de mineração.
+
+
+
+
+
+⚠️ Limitações e Considerações
+
+Este projeto é primariamente educacional e experimental.
+
+Aspecto
+Detalhe
+Rentabilidade
+O hashrate de ~50 H/s é muito baixo para ser lucrativo. O foco é no aprendizado e na demonstração de tecnologia.
+Consumo de Energia
+Embora baixo (~500mA), o consumo contínuo deve ser considerado.
+Estabilidade
+Requer uma fonte de alimentação estável e uma conexão WiFi robusta para evitar rejeições de shares.
+Aquecimento
+O ESP32 pode aquecer durante a operação contínua devido ao uso intensivo do acelerador de hardware.
+
+
+
+
+
+🚨 Solução de Problemas Comuns
+
+Problema
+Solução Recomendada
+❌ WiFi Não Conecta
+1. Verifique se o SSID e a senha estão corretos. 2. Certifique-se de que o sinal WiFi é adequado. 3. Use o Modo AP (/api/enable-ap) para reconfigurar.
+❌ Pool Não Conecta
+1. Verifique o Host e a Porta da pool. 2. Confirme se a carteira e o nome do worker são válidos. 3. Teste a conectividade de rede do seu roteador.
+❌ Baixo Hashrate
+1. Lembre-se que o poder do ESP32 é limitado (40-60 H/s). 2. O hashrate varia com a dificuldade da pool. 3. Verifique a estabilidade da fonte de alimentação.
+
+
+
+
+
+🤝 Contribuições
+
+Contribuições são bem-vindas! Sinta-se à vontade para abrir uma issue ou enviar um Pull Request para:
+
+•
+Melhorar a otimização do código.
+
+•
+Adicionar novas funcionalidades à interface web.
+
+•
+Corrigir bugs.
+
+Licença
+
+Este projeto está licenciado sob a Licença MIT - veja o arquivo LICENSE para mais detalhes.
+
+
+
 
 <p align="center">
-  <img src="https://img.shields.io/badge/ESP32-SHA256 Miner-green" alt="ESP32">
-  <img src="https://img.shields.io/badge/Platform-Arduino%20%7C%20PlatformIO-blue" alt="Platform">
-  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License">
-  <img src="https://img.shields.io/badge/Version-1.0.0-orange" alt="Version">
+Feito com 💖 por [Seu Nome/Usuário]
 </p>
-
-<div align="center">
-  
-  🎯 **Mineração Real** • 🌐 **Interface Web** • 📱 **Responsivo** • 💡 **LEDs Indicadores** • 🔧 **Fácil Configuração**
-
-</div>
-
-<br>
-
-## 🚀 **Características Principais**
-
-| Feature | Descrição |
-|---------|-----------|
-| ⚡ **Mineração Real SHA-256** | Implementação otimizada com acelerador de hardware do ESP32 |
-| 🌐 **Interface Web Responsiva** | Controle completo via navegador em qualquer dispositivo |
-| 📶 **Sistema Dual WiFi** | Modo STA (mineração) + AP (configuração) automático |
-| 💡 **LEDs Indicadores Visuais** | 4 LEDs para status em tempo real |
-| 💾 **Configuração Persistente** | Salva settings na memória SPIFFS |
-| 🎯 **Multi-pool Support** | Compatível com pools Stratum (Unmineable, etc.) |
-| 💰 **Multi-moedas** | Suporte a TRX, BTC, DOGE e outras via Unmineable |
-| 📊 **Monitoramento em Tempo Real** | Estatísticas detalhadas via API REST |
-
-<br>
-
-## 🎯 **Demonstração Visual**
-
-### 💡 Sistema de LEDs
-| GPIO | Cor | Estado | Significado |
-|------|-----|--------|-------------|
-| **D18** | 🟡 Amarelo | Fixo | **Modo AP Ativo** |
-| **D19** | 🟢 Verde | Fixo | **WiFi Conectado** |
-| **D22** | 🟢 Verde | Piscante | **Minerando Ativamente** |
-| **D23** | 🟢 Verde | Fixo | **Shares Aceitos** |
-
-### 📱 Interface Web
-![Interface Web](https://via.placeholder.com/800x400/667eea/ffffff?text=ESP32+Miner+Interface+Web)
-> *Interface web responsiva com controle total do minerador*
-
-<br>
-
-## 📋 **Pré-requisitos**
-
-### 🛠️ Hardware Requerido
-- ✅ **ESP32** (com acelerador SHA-256)
-- ✅ **4x LEDs** (para indicadores de status)
-- ✅ **Fonte de alimentação estável** (≥500mA)
-- ✅ **Conexão WiFi** 2.4GHz
-
-### 📚 Software & Bibliotecas
-```cpp<br>
-// Bibliotecas necessárias<br>
-#include <WiFi.h><br>
-#include <WebServer.h><br>
-#include <ArduinoJson.h><br>
-#include <SPIFFS.h><br>
-#include "sha256_acelerado.h"<br>
-
-🔧 Instalação Rápida<br>
-1. 📥 Clone o Repositório<br>
-	git clone https://github.com/seu-usuario/esp32-miner.git<br>
-	cd esp32-miner<br>
-
-2. 🔌 Conexões dos LEDs<br>
-	#define LED_AP_MODE      18  // D18 - Amarelo - Modo AP<br>
-	#define LED_WIFI_CONNECT 19  // D19 - Verde - WiFi Conectado  <br>
-	#define LED_MINING       22  // D22 - Verde - Minerando (Piscante)<br>
-	#define LED_SHARES       23  // D23 - Verde - Shares Aceitos<br>
-
-3. ⚙️ Configuração Inicial<br>
-	// Configuração padrão - personalize no painel web<br>
-	String wifi_ssid = "sua-rede-wifi";
-	String wifi_password = "sua-senha";<br>
-	String trx_wallet = "sua-carteira";<br>
-	String pool_host = "pool";<br>
-	String pool_port = "3333";<br>
-	String worker_name = "seuminer#seu-id";<br>
-	String coin_type = "COIN";<br>
-
-4. 🚀 Primeira Execução<br>
-    Carregue o código no ESP32<br>
-    Conecte-se ao WiFi ESP32-Miner-Config (senha: 12345678)<br>
-    Acesse http://192.168.4.1<br>
-    Configure sua rede WiFi e dados da pool<br>
-
-🌐 Interface Web - Features<br>
-📊 Painel de Status<br>
-	{<br>
-	  "wifi_ssid": "SuaRedeWiFi",<br>
-	  "pool_connected": true,<br>
-	  "hashrate": "45.2 H/s",<br>
-	  "shares": 15,<br>
-	  "uptime": "2h 15m 30s"<br>
-	}<br>
-
-⚙️ Configurações
-    🔍 Scan de redes WiFi automático<br>
-    💰 Configuração de carteira e moeda<br>
-    🎯 Seleção de pool personalizável<br>
-    👷 Nome do worker customizável<br>
-
-🔧 Controles<br>
-    🔄 Reinício do minerador<br>
-    📶 Ativação modo AP<br>
-    🗑️ Limpeza de logs<br>
-    💾 Salvar configuração<br>
-
-
-⛏️ Funcionamento da Mineração<br>
-🔄 Protocolo Stratum<br>
-	graph LR<br>
-		A[ESP32 Miner] --> B[Subscribe]<br>
-		B --> C[Authorize]<br>
-		C --> D[Notify - Jobs]<br>
-		D --> E[Submit - Shares]<br>
-		E --> F[💰 Rewards]<br>
-
-⚡ Algoritmo SHA-256<br>
-    🚀 Aceleração por hardware do ESP32<br>
-    🔄 Double SHA-256 calculation<br>
-    ✅ Verificação automática de target<br>
-    📤 Submissão inteligente de shares<br>
-
-
-📊 Performance & Estatísticas<br>
-🎯 Métricas em Tempo Real<br>
-	Métrica	Valor Típico	Descrição<br>
-	Hashrate	40-60 H/s	Poder de processamento<br>
-	Shares/Hora	0.1-0.5	Shares aceitos por hora<br>
-	Consumo	~500mA	Consumo elétrico<br>
-	Temperatura	45-65°C	Temperatura de operação<br>
-	
-📈 Exemplo de Logs<br>
-	[1200000] Hashes: 15000 | Shares: 3 | Rejeitados: 0 | Hashrate: 45.2 H/s | Tempo: 5 min<br>
-	[2400000] Hashes: 32000 | Shares: 7 | Rejeitados: 1 | Hashrate: 48.1 H/s | Tempo: 11 min<br>
-
-🛠️ API Endpoints<br>
-	Endpoint	Método	Descrição<br>
-	/api/stats	GET	📊 Estatísticas em tempo real<br>
-	/api/config	GET	⚙️ Configuração atual<br>
-	/api/save-config	POST	💾 Salvar nova configuração<br>
-	/api/scan-wifi	GET	🔍 Listar redes WiFi<br>
-	/api/restart-miner	POST	🔄 Reiniciar minerador<br>
-	/api/enable-ap	POST	📶 Ativar modo AP<br>
-	/api/delete-logs	POST	🗑️ Apagar logs<br>
-
-🚨 Solução de Problemas<br>
-❌ WiFi Não Conecta<br>
-
-✅ Verifique: SSID e senha corretos<br>
-✅ Certifique: Sinal WiFi adequado  <br>
-✅ Use: Modo AP para reconfigurar<br>
-
-❌ Pool Não Conecta<br>
-✅ Verifique: Host e porta da pool<br>
-✅ Confirme: Carteira e worker válidos<br>
-✅ Teste: Conectividade de rede<br>
-
-❌ Baixo Hashrate<br>
-⚠️  ESP32 tem poder limitado (~50 H/s)<br>
-⚠️  Hashrate varia com dificuldade<br>
-✅ Verifique: Estabilidade da alimentação<br>
-
-⚠️ Limitações & Considerações<br>
-Aspecto	Detalhe<br>
-🎯 Performance	~50 H/s (típico para ESP32)<br>
-💰 Rentabilidade	Mais educacional que lucrativo<br>
-⚡ Energia	Consome ~500mA durante mineração<br>
-📶 Rede	Requer conexão WiFi estável<br>
-🌡️ Temperatura	Pode aquecer durante operação contínua<br>
-
-
-
-
-
-
-
 
