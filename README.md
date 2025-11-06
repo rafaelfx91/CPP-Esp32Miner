@@ -117,13 +117,13 @@ O minerador se comunica com a pool utilizando o protocolo Stratum.
 mermaid
 
 graph LR
-    A[ESP32 Miner] --> B(Conectar à Pool);
-    B --> C{Enviar: Subscribe};
-    C --> D{Enviar: Authorize};
-    D --> E[Pool Envia: Notify - Jobs];
-    E --> F[ESP32 Calcula Hash];
-    F -- Envia: Submit - Shares --> G[Pool Aceita/Rejeita];
-    G --> H[💰 Rewards (se aceito)];
+    A[ESP32 Miner] --> B(Conectar à Pool)
+    B --> C{Enviar: Subscribe}
+    C --> D{Enviar: Authorize}
+    D --> E[Pool Envia: Notify - Jobs]
+    E --> F[ESP32 Calcula Hash]
+    F -- Envia: Submit - Shares --> G[Pool Aceita/Rejeita]
+    G --> H[💰 Rewards (se aceito)]
 
 ⚡ Algoritmo SHA-256 Otimizado
 
