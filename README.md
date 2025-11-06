@@ -2,8 +2,7 @@
 
 <p align="center">
 <strong>Minerador de criptomoedas completo com interface web e LEDs indicadores, otimizado para o ESP32.</strong>
-    
-
+</p> <p align="center">
   <em>Mineração real SHA-256 • Interface web responsiva • Sistema dual WiFi para configuração</em>
 </p> <p align="center">
   <img src="https://img.shields.io/badge/ESP32-SHA256%20Miner-green?style=for-the-badge&logo=espressif" alt="ESP32">
@@ -12,9 +11,13 @@
   <img src="https://img.shields.io/badge/Version-1.0.0-orange?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/github/stars/seu-usuario/esp32-miner?style=for-the-badge&color=gold" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/seu-usuario/esp32-miner?style=for-the-badge&color=lightgrey" alt="GitHub Forks">
-</p> <div align="center">   <p>
+</p> <div align="center">
+  <p>
     🎯 **Mineração Real** • 🌐 **Interface Web** • 📱 **Responsivo** • 💡 **LEDs Indicadores** • 🔧 **Fácil Configuração**
-  </p>   <!-- Adicione um GIF ou imagem de demonstração aqui para um impacto visual imediato -->   <!-- <img src="caminho/para/seu/gif-demo.gif" alt="Demonstração do Minerador em Ação" width="600"/> --> </div>
+  </p>
+  <!-- Adicione um GIF ou imagem de demonstração aqui para um impacto visual imediato -->
+  <!-- <img src="caminho/para/seu/gif-demo.gif" alt="Demonstração do Minerador em Ação" width="600"/> -->
+</div>
 
 
 
@@ -52,13 +55,13 @@ Estatísticas detalhadas de hashrate, shares e uptime disponíveis via API REST 
 
 Item
 Detalhe
-ESP32
+✅ ESP32
 Necessário um modelo com suporte ao acelerador SHA-256 (a maioria dos modelos modernos).
-4x LEDs
+✅ 4x LEDs
 Para indicadores visuais de status.
-Fonte de Alimentação
+✅ Fonte de Alimentação
 Estável, com capacidade de corrente de ≥500mA para garantir a estabilidade da mineração.
-Conexão WiFi
+✅ Conexão WiFi
 Rede 2.4GHz para conexão à pool de mineração.
 
 
@@ -66,7 +69,7 @@ Rede 2.4GHz para conexão à pool de mineração.
 
 Este projeto é desenvolvido para Arduino IDE ou PlatformIO.
 
-As bibliotecas necessárias são:
+As bibliotecas essenciais para o projeto são:
 
 C++
 
@@ -85,24 +88,24 @@ C++
 📥 Clone o Repositório:
 
 2.
-🔌 Conexões dos LEDs: Conecte os LEDs aos seguintes pinos GPIO do seu ESP32:
+🔌 Conexões dos LEDs: Conecte os LEDs aos seguintes pinos GPIO do seu ESP32: (Detalhes dos pinos GPIO devem ser adicionados aqui)
 
 3.
 ⚙️ Primeira Execução:
 
-•
+1.
 Carregue o código no seu ESP32 (via Arduino IDE ou PlatformIO).
 
-•
+2.
 O ESP32 iniciará no modo AP (Access Point) se não encontrar configurações salvas.
 
-•
+3.
 Conecte-se à rede WiFi ESP32-Miner-Config (senha padrão: 12345678).
 
-•
+4.
 Acesse o endereço http://192.168.4.1 no seu navegador.
 
-•
+5.
 Configure sua rede WiFi, dados da pool de mineração e carteira. O dispositivo irá reiniciar e começar a mineração.
 
 
@@ -119,13 +122,13 @@ O minerador se comunica com a pool utilizando o protocolo Stratum.
 mermaid
 
 graph LR
-    A[ESP32 Miner] --> B(Conectar à Pool)
-    B --> C{Enviar: Subscribe}
-    C --> D{Enviar: Authorize}
-    D --> E[Pool Envia: Notify - Jobs]
-    E --> F[ESP32 Calcula Hash]
-    F -- Envia: Submit - Shares --> G[Pool Aceita/Rejeita]
-    G --> H[💰 Rewards (se aceito)]
+    A[ESP32 Miner] --> B(Conectar à Pool);
+    B --> C{Enviar: Subscribe};
+    C --> D{Enviar: Authorize};
+    D --> E[Pool Envia: Notify - Jobs];
+    E --> F[ESP32 Calcula Hash];
+    F -- Envia: Submit - Shares --> G[Pool Aceita/Rejeita];
+    G --> H[💰 Rewards (se aceito)];
 
 ⚡ Algoritmo SHA-256 Otimizado
 
@@ -249,9 +252,6 @@ Corrigir bugs.
 Licença
 
 Este projeto está licenciado sob a Licença MIT - veja o arquivo LICENSE para mais detalhes.
-
-
-
 
 <p align="center">
 Feito com 💖 por [Seu Nome/Usuário]
