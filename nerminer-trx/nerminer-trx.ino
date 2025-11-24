@@ -7,8 +7,8 @@
 #include "sha256_acelerado.h"
 
 // ========== CONFIGURAÇÕES PADRÃO ==========
-String wifi_ssid = "a";
-String wifi_password = "a";
+String wifi_ssid = "SUA_REDE";
+String wifi_password = "SUA_SENHA";
 String trx_wallet = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
 String pool_host = "sha256.unmineable.com";
 String pool_port = "3333";
