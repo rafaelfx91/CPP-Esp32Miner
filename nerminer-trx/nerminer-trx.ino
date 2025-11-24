@@ -3,146 +3,108 @@
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
-#include "SPIFFS.h"
+#include <SPIFFS.h>
 #include "sha256_acelerado.h"
 
 // ========== CONFIGURAÇÕES PADRÃO ==========
-String wifi_ssid = "SUA_REDE";
-String wifi_password = "SUA_SENHA";
+String wifi_ssid = "SUAREDE";
+String wifi_password = "SUASENHA";
 String trx_wallet = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
 String pool_host = "sha256.unmineable.com";
 String pool_port = "3333";
 String worker_name = "esp32-miner#cub7-5a3h";
 String coin_type = "TRX";
-// ==========================================
 
 // ========== PINOS DOS LEDs ==========
-#define LED_AP_MODE      18  // D18 - Modo AP
-#define LED_WIFI_CONNECT 19  // D19 - WiFi Conectado
-#define LED_MINING       22  // D22 - Minerando
-#define LED_SHARES       23  // D23 - Shares Aceitos
-// ====================================
+#define LED_AP_MODE      18
+#define LED_WIFI_CONNECT 19
+#define LED_MINING       22
+#define LED_SHARES       23
 
 WiFiClient poolClient;
 WebServer server(80);
 
-// Variáveis globais
+// ========== VARIÁVEIS GLOBAIS ==========
 unsigned long hashes_calculated = 0;
 unsigned long shares_submitted = 0;
 unsigned long shares_rejected = 0;
 unsigned long start_time = 0;
 unsigned long last_log_save = 0;
-unsigned long last_pool_activity = 0;
 unsigned long last_led_blink = 0;
+
 bool poolConnected = false;
 bool isMiningActive = false;
 String current_job_id = "";
-
-// Variáveis para mineração real
 uint8_t job_target[32];
 uint8_t job_header[80];
 uint32_t current_nonce = 0;
 
-// Variáveis do sistema WiFi
 bool isAPMode = false;
 bool wifiConnected = false;
 
-// Funções auxiliares
+// ====================== FUNÇÕES AUXILIARES ======================
 void hexToBytes(const char* hex, uint8_t* bytes, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        sscanf(hex + 2 * i, "%2hhx", &bytes[i]);
-    }
+  for (size_t i = 0; i < len; i++) sscanf(hex + 2 * i, "%2hhx", &bytes[i]);
 }
 
 void reverseBytes(uint8_t* data, size_t len) {
-    for (size_t i = 0; i < len / 2; i++) {
-        uint8_t temp = data[i];
-        data[i] = data[len - 1 - i];
-        data[len - 1 - i] = temp;
-    }
+  for (size_t i = 0; i < len / 2; i++) {
+    uint8_t temp = data[i];
+    data[i] = data[len - 1 - i];
+    data[len - 1 - i] = temp;
+  }
 }
 
-// ========== SISTEMA DE LEDs ==========
+// ====================== LEDs ======================
 void setupLEDs() {
   pinMode(LED_AP_MODE, OUTPUT);
   pinMode(LED_WIFI_CONNECT, OUTPUT);
   pinMode(LED_MINING, OUTPUT);
   pinMode(LED_SHARES, OUTPUT);
-  
-  // Inicializar todos desligados
   digitalWrite(LED_AP_MODE, LOW);
   digitalWrite(LED_WIFI_CONNECT, LOW);
   digitalWrite(LED_MINING, LOW);
   digitalWrite(LED_SHARES, LOW);
-  
-  Serial.println("✅ LEDs inicializados: D18(AP), D19(WiFi), D22(Minerando), D23(Shares)");
 }
 
 void updateLEDs() {
-  unsigned long currentMillis = millis();
-  
-  // D18 - Modo AP (Amarelo fixo)
+  unsigned long cm = millis();
   digitalWrite(LED_AP_MODE, isAPMode);
-  
-  // D19 - WiFi Conectado (Verde fixo)
   digitalWrite(LED_WIFI_CONNECT, wifiConnected);
-  
-  // D22 - Minerando (Verde piscante)
   if (poolConnected && isMiningActive) {
-    // Piscar a cada 500ms
-    if (currentMillis - last_led_blink >= 500) {
+    if (cm - last_led_blink >= 500) {
       digitalWrite(LED_MINING, !digitalRead(LED_MINING));
-      last_led_blink = currentMillis;
+      last_led_blink = cm;
     }
-  } else {
-    digitalWrite(LED_MINING, LOW);
-  }
-  
-  // D23 - Shares Aceitos (Verde fixo quando > 0)
+  } else digitalWrite(LED_MINING, LOW);
   digitalWrite(LED_SHARES, shares_submitted > 0);
 }
 
-// ========== SISTEMA DE CONFIGURAÇÃO ==========
+// ====================== CONFIG ======================
 void loadConfig() {
-  if (!SPIFFS.begin(true)) {
-    Serial.println("❌ Erro ao montar SPIFFS");
-    return;
-  }
-  
+  if (!SPIFFS.begin(true)) return;
   if (SPIFFS.exists("/config.json")) {
-    File configFile = SPIFFS.open("/config.json", "r");
-    if (configFile) {
+    File f = SPIFFS.open("/config.json", "r");
+    if (f) {
       DynamicJsonDocument doc(1024);
-      DeserializationError error = deserializeJson(doc, configFile);
-      
-      if (!error) {
-        wifi_ssid = doc["wifi_ssid"] | "AAAAA";
-        wifi_password = doc["wifi_password"] | "Penademorcego5";
-        trx_wallet = doc["wallet"] | "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
-        pool_host = doc["pool_host"] | "sha256.unmineable.com";
-        pool_port = doc["pool_port"] | "3333";
-        worker_name = doc["worker_name"] | "esp32-miner#cub7-5a3h";
-        coin_type = doc["coin_type"] | "TRX";
-        
-        Serial.println("✅ Configuração carregada!");
+      if (deserializeJson(doc, f) == DeserializationError::Ok) {
+        wifi_ssid = doc["wifi_ssid"] | wifi_ssid;
+        wifi_password = doc["wifi_password"] | wifi_password;
+        trx_wallet = doc["wallet"] | trx_wallet;
+        pool_host = doc["pool_host"] | pool_host;
+        pool_port = doc["pool_port"] | pool_port;
+        worker_name = doc["worker_name"] | worker_name;
+        coin_type = doc["coin_type"] | coin_type;
       }
-      configFile.close();
+      f.close();
     }
   }
 }
 
 void saveConfig() {
-  if (!SPIFFS.begin(true)) {
-    Serial.println("❌ Erro ao montar SPIFFS");
-    return;
-  }
-  
-  File configFile = SPIFFS.open("/config.json", "w");
-  if (!configFile) {
-    Serial.println("❌ Erro ao salvar configuração");
-    return;
-  }
-  
+  if (!SPIFFS.begin(true)) return;
+  File f = SPIFFS.open("/config.json", "w");
+  if (!f) return;
   DynamicJsonDocument doc(1024);
   doc["wifi_ssid"] = wifi_ssid;
   doc["wifi_password"] = wifi_password;
@@ -151,295 +113,145 @@ void saveConfig() {
   doc["pool_port"] = pool_port;
   doc["worker_name"] = worker_name;
   doc["coin_type"] = coin_type;
-  
-  serializeJson(doc, configFile);
-  configFile.close();
-  
-  Serial.println("✅ Configuração salva!");
+  serializeJson(doc, f);
+  f.close();
 }
 
-// ========== SISTEMA WiFi DUAL (STA + AP) ==========
+// ====================== WiFi ======================
+void startAPMode() {
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP("ESP32-Miner-Config", "12345678");
+  isAPMode = true;
+  Serial.println("Modo AP ativado → http://192.168.4.1");
+}
+
 bool connectToWiFi() {
-  Serial.println("📡 Tentando conectar WiFi: " + wifi_ssid);
-  
+  Serial.print("Conectando WiFi: " + wifi_ssid);
   WiFi.mode(WIFI_STA);
   WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
-  
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-    updateLEDs(); // Atualizar LEDs durante tentativa
-  }
-  
+  int t = 0;
+  while (WiFi.status() != WL_CONNECTED && t++ < 40) { delay(500); Serial.print("."); }
   if (WiFi.status() == WL_CONNECTED) {
-    wifiConnected = true;
-    isAPMode = false;
-    Serial.println("\n✅ WiFi Conectado! IP: " + WiFi.localIP().toString());
+    wifiConnected = true; isAPMode = false;
+    Serial.println("\nWiFi conectado! IP: " + WiFi.localIP().toString());
     return true;
   } else {
-    Serial.println("\n❌ Falha na conexão WiFi - Ativando modo AP");
+    Serial.println("\nFalha → Modo AP");
     startAPMode();
     return false;
   }
 }
 
-void startAPMode() {
-  Serial.println("🌐 Iniciando modo Access Point...");
-  
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP("ESP32-Miner-Config", "12345678");
-  
-  isAPMode = true;
-  wifiConnected = false;
-  
-  Serial.println("✅ Modo AP Ativo!");
-  Serial.println("📶 SSID: ESP32-Miner-Config");
-  Serial.println("🔑 Senha: 12345678");
-  Serial.println("🌐 Acesse: http://192.168.4.1");
-}
-
-// ========== MINERAÇÃO ==========
+// ====================== POOL ======================
 bool connectToMiningPool() {
-  if (!wifiConnected) {
-    Serial.println("❌ Sem conexão WiFi - Não é possível conectar à pool");
-    return false;
+  if (!wifiConnected) return false;
+  if (poolClient.connect(pool_host.c_str(), pool_port.toInt())) {
+    poolClient.print("{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"ESP32Miner/1.0\"]}\n");
+    return true;
   }
-  
-  Serial.println("🔗 Conectando à pool " + pool_host + ":" + pool_port);
-  
-  if (!poolClient.connect(pool_host.c_str(), pool_port.toInt())) {
-    Serial.println("❌ Falha na conexão com a pool");
-    return false;
-  }
-  
-  Serial.println("✅ Conectado à pool!");
-  last_pool_activity = millis();
-  
-  String subscribe_msg = "{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[\"ESP32Miner/1.0.0\"]}\n";
-  poolClient.print(subscribe_msg);
-  Serial.println("📤 Enviando subscription...");
-  
-  return true;
+  return false;
 }
 
 void authorizeWorker() {
-  String auth_msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"" + coin_type + ":" + trx_wallet + "." + worker_name + "\",\"\"]}\n";
-  poolClient.print(auth_msg);
-  Serial.println("🔑 Autorizando worker: " + coin_type + ":" + trx_wallet + "." + worker_name);
+  String msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"" + coin_type + ":" + trx_wallet + "." + worker_name + "\",\"\"]}\n";
+  poolClient.print(msg);
 }
 
-void submitHashrate() {
-  if (!wifiConnected) return;
-  
-  unsigned long current_time = millis();
-  float elapsed_sec = (current_time - start_time) / 1000.0;
-  float hashrate = elapsed_sec > 0 ? (float)hashes_calculated / elapsed_sec : 0;
-  
-  String hashrate_msg = "{\"id\":6,\"method\":\"mining.hashrate\",\"params\":[\"" + String((int)hashrate) + "\"]}\n";
-  poolClient.print(hashrate_msg);
-  Serial.println("📊 Reportando hashrate: " + String(hashrate, 1) + " H/s");
-}
+// ====================== MINERAÇÃO ======================
+void processMiningNotify(JsonArray p) {
+  current_job_id = p[0].as<String>();
+  String prevhash = p[1].as<String>();
+  String version = p[5].as<String>();
+  String nbits   = p[6].as<String>();
+  String ntime   = p[7].as<String>();
+  String target_hex = p[8].as<String>();
 
-bool isPoolReallyConnected() {
-  return poolClient.connected() && (millis() - last_pool_activity < 120000);
-}
+  Serial.println("NOVO JOB: " + current_job_id);
+  isMiningActive = true;
+  memset(job_header, 0, 80);
 
-void processMiningNotify(JsonArray params) {
-    current_job_id = String(params[0].as<const char*>());
-    String prevhash = params[1].as<const char*>();
-    String coinb1 = params[2].as<const char*>();
-    String coinb2 = params[3].as<const char*>();
-    String version = params[5].as<const char*>();
-    String nbits = params[6].as<const char*>();
-    String ntime = params[7].as<const char*>();
-    
-    Serial.println("🎯 NOVO TRABALHO: " + current_job_id);
-    isMiningActive = true;
-    
-    // Montar cabeçalho de 80 bytes
-    memset(job_header, 0, 80);
-    
-    // Version (4 bytes)
-    hexToBytes(version.c_str(), job_header, 4);
-    reverseBytes(job_header, 4);
-    
-    // PrevHash (32 bytes)
-    hexToBytes(prevhash.c_str(), job_header + 4, 32);
-    reverseBytes(job_header + 4, 32);
-    
-    // Merkle Root (32 bytes)
-    memset(job_header + 36, 0, 32);
-    
-    // Time (4 bytes)
-    hexToBytes(ntime.c_str(), job_header + 68, 4);
-    reverseBytes(job_header + 68, 4);
-    
-    // Bits (4 bytes)
-    hexToBytes(nbits.c_str(), job_header + 72, 4);
-    reverseBytes(job_header + 72, 4);
-    
-    // Nonce inicial (4 bytes)
-    current_nonce = 0;
-    memcpy(job_header + 76, &current_nonce, 4);
-    
-    // Target para dificuldade 16384
-    memset(job_target, 0x00, 32);
-    job_target[0] = 0x00;
-    job_target[1] = 0x00; 
-    job_target[2] = 0x00;
-    job_target[3] = 0x00;
-    job_target[4] = 0x00;
-    job_target[5] = 0x00;
-    job_target[6] = 0x00;
-    job_target[7] = 0x00;
-    job_target[29] = 0xFF;
-    job_target[30] = 0xFF;
-    job_target[31] = 0xFF;
+  hexToBytes(version.c_str(), job_header, 4);     reverseBytes(job_header, 4);
+  hexToBytes(prevhash.c_str(), job_header + 4, 32); reverseBytes(job_header + 4, 32);
+  hexToBytes(ntime.c_str(), job_header + 68, 4);   reverseBytes(job_header + 68, 4);
+  hexToBytes(nbits.c_str(), job_header + 72, 4);   reverseBytes(job_header + 72, 4);
 
-    Serial.println("✅ Trabalho configurado. Iniciando mineração real SHA-256!");
+  current_nonce = 0;
+  memcpy(job_header + 76, &current_nonce, 4);
+
+  memset(job_target, 0xFF, 32);
+  if (target_hex.length() >= 64) {
+    hexToBytes(target_hex.c_str(), job_target, 32);
+    reverseBytes(job_target, 32);
+  }
 }
 
 void handlePoolResponse() {
   while (poolClient.available()) {
-    String response = poolClient.readStringUntil('\n');
-    Serial.println("📥 Pool: " + response);
-    last_pool_activity = millis();
-    
-    DynamicJsonDocument doc(2048);
-    DeserializationError error = deserializeJson(doc, response);
-    
-    if (error) {
-      Serial.print("❌ JSON parse failed: ");
-      Serial.println(error.c_str());
-      return;
-    }
-    
+    String line = poolClient.readStringUntil('\n');
+    Serial.println("Pool: " + line);
+
+    DynamicJsonDocument doc(4096);
+    if (deserializeJson(doc, line)) continue;
+
     if (doc.containsKey("id")) {
-      int msg_id = doc["id"];
-      
-      if (msg_id == 1) {
-        Serial.println("✅ Subscription aceito!");
-        delay(1000);
-        authorizeWorker();
-      }
-      else if (msg_id == 2) {
-        bool auth_result = doc["result"];
-        if (auth_result) {
-          Serial.println("🎉 WORKER AUTORIZADO! Iniciando mineração...");
-          poolConnected = true;
-          submitHashrate();
-        } else {
-          Serial.println("❌ Falha na autorização");
-        }
-      }
-      else if (msg_id > 2) {
-        bool share_result = doc["result"];
-        if (share_result) {
+      int id = doc["id"];
+      if (id == 1) { delay(1000); authorizeWorker(); }
+      else if (id == 2 && doc["result"] == true) { poolConnected = true; Serial.println("AUTORIZADO!"); }
+      else if (id > 2) {
+        if (doc["result"] == true) {
           shares_submitted++;
-          Serial.println("✅ SHARE ACEITO! Total: " + String(shares_submitted));
+          Serial.println("SHARE ACEITO!!! Total: " + String(shares_submitted));
           saveLog();
-        } else {
-          shares_rejected++;
-          Serial.println("❌ SHARE REJEITADO! Total rejeitados: " + String(shares_rejected));
-        }
+        } else shares_rejected++;
       }
     }
-    
     if (doc.containsKey("method") && String(doc["method"].as<const char*>()) == "mining.notify") {
-      if (doc["params"].is<JsonArray>() && doc["params"].size() > 0) {
-        processMiningNotify(doc["params"].as<JsonArray>());
-      }
+      processMiningNotify(doc["params"].as<JsonArray>());
     }
   }
 }
 
 void processMiningJob() {
   if (current_job_id == "") return;
-  
-  uint32_t nonce_batch_size = 1000;
-  uint8_t hash_result[32];
-  
-  for(uint32_t i = 0; i < nonce_batch_size; i++) {
+  uint8_t hash[32];
+  for (int i = 0; i < 1000; i++) {
     memcpy(job_header + 76, &current_nonce, 4);
-    
-    calculate_double_sha256(job_header, hash_result);
-    
+    calculate_double_sha256(job_header, hash);
     hashes_calculated++;
     current_nonce++;
-    
-    bool is_valid = true;
-    for (int j = 31; j >= 0; j--) {
-      if (hash_result[j] < job_target[j]) {
-        is_valid = true;
-        break;
-      }
-      if (hash_result[j] > job_target[j]) {
-        is_valid = false;
-        break;
-      }
+
+    bool ok = true;
+    for (int j = 0; j < 32; j++) {
+      if (hash[j] > job_target[j]) { ok = false; break; }
+      if (hash[j] < job_target[j]) break;
     }
-    
-    if (is_valid) {
+    if (ok) {
       char nonce_hex[9];
       sprintf(nonce_hex, "%08x", current_nonce - 1);
+      Serial.println("SHARE VÁLIDO! Nonce: " + String(nonce_hex));
       submitShare(current_job_id, String(nonce_hex));
-      break;
-    }
-    
-    if (hashes_calculated % 100 == 0) {
-      unsigned long current_time = millis();
-      float elapsed_sec = (current_time - start_time) / 1000.0;
-      float hashrate = elapsed_sec > 0 ? (float)hashes_calculated / elapsed_sec : 0;
-      
-      Serial.print("⛏️ ");
-      Serial.print(hashes_calculated);
-      Serial.print(" hashes | ");
-      Serial.print(hashrate, 1);
-      Serial.print(" H/s | Shares: ");
-      Serial.print(shares_submitted);
-      Serial.print(" | Rejeitados: ");
-      Serial.println(shares_rejected);
     }
   }
 }
 
-void submitShare(String job_id, String nonce) {
-  String share_msg = "{\"id\":" + String(millis()) + ",\"method\":\"mining.submit\",\"params\":[\"" + coin_type + ":" + 
-                    trx_wallet + "." + worker_name + "\",\"" + job_id + "\",\"" + nonce + "\"]}\n";
-  poolClient.print(share_msg);
-  Serial.println("📤 Enviando share REAL: " + nonce);
+void submitShare(String job, String nonce) {
+  String msg = "{\"id\":" + String(millis()) + ",\"method\":\"mining.submit\",\"params\":[\"" +
+               coin_type + ":" + trx_wallet + "." + worker_name + "\",\"" + job + "\",\"" + nonce + "\"]}\n";
+  poolClient.print(msg);
 }
 
 void saveLog() {
   if (!SPIFFS.begin(true)) return;
-  
-  File file = SPIFFS.open("/miner_log.txt", "a");
-  if (!file) return;
-  
-  unsigned long current_time = millis();
-  unsigned long minutes = (current_time - start_time) / 60000;
-  float hashrate = minutes > 0 ? (float)hashes_calculated / (minutes * 60) : 0;
-  
-  String log_entry = "[" + String(millis()) + "] ";
-  log_entry += "Hashes: " + String(hashes_calculated) + " | ";
-  log_entry += "Shares: " + String(shares_submitted) + " | ";
-  log_entry += "Rejeitados: " + String(shares_rejected) + " | ";
-  log_entry += "Hashrate: " + String(hashrate, 2) + " H/s | ";
-  log_entry += "Tempo: " + String(minutes) + " min\n";
-  
-  file.println(log_entry);
-  file.close();
+  File f = SPIFFS.open("/miner_log.txt", "a");
+  if (f) {
+    f.printf("[%lu] Shares:%lu Rej:%lu %.1f H/s\n", millis()/1000, shares_submitted, shares_rejected,
+             hashes_calculated/((millis()-start_time)/1000.0));
+    f.close();
+  }
 }
 
-void deleteLogs() {
-  if (!SPIFFS.begin(true)) return;
-  SPIFFS.remove("/miner_log.txt");
-  Serial.println("✅ Logs apagados!");
-}
+// ====================== WEB SERVER COMPLETO ======================
 
-// ========== SERVIDOR WEB ==========
 void handleRoot() {
   String html = R"rawliteral(
   <!DOCTYPE html>
@@ -859,25 +671,18 @@ void handleRoot() {
   
   server.send(200, "text/html", html);
 }
+
 void handleApiStats() {
-  DynamicJsonDocument doc(1024);
-  
-  unsigned long current_time = millis();
-  unsigned long uptime_seconds = (current_time - start_time) / 1000;
-  unsigned long hours = uptime_seconds / 3600;
-  unsigned long minutes = (uptime_seconds % 3600) / 60;
-  unsigned long seconds = uptime_seconds % 60;
-  
-  String uptime_str = String(hours) + "h " + String(minutes) + "m " + String(seconds) + "s";
-  float hashrate = uptime_seconds > 0 ? (float)hashes_calculated / uptime_seconds : 0;
-  
+  DynamicJsonDocument doc(2048);
+  float sec = (millis() - start_time) / 1000.0;
+  float hr = sec > 0 ? hashes_calculated / sec : 0;
+
   doc["wifi_ssid"] = WiFi.SSID();
-  doc["pool_connected"] = isPoolReallyConnected();
   doc["ip_address"] = WiFi.localIP().toString();
   doc["mac_address"] = WiFi.macAddress();
-  doc["uptime"] = uptime_str;
+  doc["uptime"] = String((millis()-start_time)/1000) + "s";
   doc["hashes"] = hashes_calculated;
-  doc["hashrate"] = String(hashrate, 2);
+  doc["hashrate"] = String(hr, 1);
   doc["shares"] = shares_submitted;
   doc["shares_rejected"] = shares_rejected;
   doc["worker"] = worker_name;
@@ -886,11 +691,10 @@ void handleApiStats() {
   doc["wallet"] = trx_wallet;
   doc["ap_mode"] = isAPMode;
   doc["wifi_connected"] = wifiConnected;
-  doc["mining_active"] = isMiningActive;
-  
-  String response;
-  serializeJson(doc, response);
-  server.send(200, "application/json", response);
+  doc["pool_connected"] = poolConnected;
+
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
 }
 
 void handleApiConfig() {
@@ -902,29 +706,22 @@ void handleApiConfig() {
   doc["wallet"] = trx_wallet;
   doc["coin_type"] = coin_type;
   doc["worker_name"] = worker_name;
-  
-  String response;
-  serializeJson(doc, response);
-  server.send(200, "application/json", response);
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
 }
 
 void handleScanWifi() {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(2048);
   JsonArray networks = doc.createNestedArray("networks");
-  
-  if (wifiConnected) {
-    int numNetworks = WiFi.scanNetworks();
-    for (int i = 0; i < numNetworks; i++) {
-      JsonObject network = networks.createNestedObject();
-      network["ssid"] = WiFi.SSID(i);
-      network["rssi"] = WiFi.RSSI(i);
-      network["encrypted"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
-    }
+  int n = WiFi.scanNetworks();
+  for (int i = 0; i < n; i++) {
+    JsonObject net = networks.createNestedObject();
+    net["ssid"] = WiFi.SSID(i);
+    net["rssi"] = WiFi.RSSI(i);
+    net["encrypted"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
   }
-  
-  String response;
-  serializeJson(doc, response);
-  server.send(200, "application/json", response);
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
 }
 
 void handleSaveConfig() {
@@ -932,69 +729,30 @@ void handleSaveConfig() {
     DynamicJsonDocument doc(1024);
     DeserializationError error = deserializeJson(doc, server.arg("plain"));
     
-    if (!error) {
-      wifi_ssid = doc["wifi_ssid"].as<String>();
-      wifi_password = doc["wifi_password"].as<String>();
-      pool_host = doc["pool_host"].as<String>();
-      pool_port = doc["pool_port"].as<String>();
-      trx_wallet = doc["wallet"].as<String>();
-      coin_type = doc["coin_type"].as<String>();
-      worker_name = doc["worker_name"].as<String>();
+    if (error == DeserializationError::Ok) {  // <--- CORRETO
+      wifi_ssid     = doc["wifi_ssid"]     | wifi_ssid;
+      wifi_password = doc["wifi_password"] | wifi_password;
+      trx_wallet    = doc["wallet"]        | trx_wallet;
+      pool_host     = doc["pool_host"]     | pool_host;
+      pool_port     = doc["pool_port"]     | pool_port;
+      worker_name   = doc["worker_name"]   | worker_name;
+      coin_type     = doc["coin_type"]     | coin_type;
       
       saveConfig();
-      
-      DynamicJsonDocument responseDoc(256);
-      responseDoc["success"] = true;
-      responseDoc["message"] = "Configuração salva!";
-      
-      String response;
-      serializeJson(responseDoc, response);
-      server.send(200, "application/json", response);
-      return;
+      server.send(200, "application/json", "{\"success\":true,\"message\":\"Configuração salva! Reiniciando...\"}");
+      delay(1500);
+      ESP.restart();
+    } else {
+      server.send(400, "application/json", "{\"success\":false,\"message\":\"JSON inválido\"}");
     }
+  } else {
+    server.send(400, "text/plain", "Nenhum dado recebido");
   }
-  
-  DynamicJsonDocument responseDoc(256);
-  responseDoc["success"] = false;
-  responseDoc["message"] = "Erro ao salvar configuração";
-  String response;
-  serializeJson(responseDoc, response);
-  server.send(400, "application/json", response);
 }
 
-void handleRestartMiner() {
-  Serial.println("🔄 Reiniciando minerador com nova configuração...");
-  
-  // Desconectar e reconectar
-  if (poolClient.connected()) {
-    poolClient.stop();
-  }
-  poolConnected = false;
-  isMiningActive = false;
-  
-  // Reconectar WiFi se necessário
-  if (WiFi.status() != WL_CONNECTED) {
-    connectToWiFi();
-  }
-  
-  // Tentar conectar à pool
-  if (wifiConnected && connectToMiningPool()) {
-    Serial.println("✅ Minerador reiniciado com sucesso!");
-  }
-  
-  server.send(200, "application/json", "{\"status\":\"restarted\"}");
-}
-
-void handleEnableAP() {
-  Serial.println("📶 Ativando modo AP por solicitação do usuário...");
-  startAPMode();
-  server.send(200, "application/json", "{\"message\":\"Modo AP ativado\"}");
-}
-
-void handleDeleteLogs() {
-  deleteLogs();
-  server.send(200, "application/json", "{\"message\":\"Logs apagados\"}");
-}
+void handleRestart() { server.send(200, "text/plain", "Reiniciando..."); delay(1000); ESP.restart(); }
+void handleEnableAP() { startAPMode(); server.send(200, "text/plain", "Modo AP ativado!"); }
+void handleDeleteLogs() { SPIFFS.remove("/miner_log.txt"); server.send(200, "text/plain", "Logs apagados!"); }
 
 void setupWebServer() {
   server.on("/", handleRoot);
@@ -1002,127 +760,52 @@ void setupWebServer() {
   server.on("/api/config", handleApiConfig);
   server.on("/api/scan-wifi", handleScanWifi);
   server.on("/api/save-config", HTTP_POST, handleSaveConfig);
-  server.on("/api/restart-miner", handleRestartMiner);
+  server.on("/api/restart-miner", handleRestart);
   server.on("/api/enable-ap", handleEnableAP);
   server.on("/api/delete-logs", handleDeleteLogs);
-  
   server.begin();
-  Serial.println("✅ Servidor HTTP iniciado!");
+  Serial.println("WebServer COMPLETO iniciado!");
 }
 
+// ====================== SETUP & LOOP ======================
 void setup() {
   Serial.begin(115200);
-  delay(2000);
-  
-  Serial.println("\n⚡ ESP32 MINER COM LEDs ⚡");
-  Serial.println("=========================");
-  
-  // Inicializar LEDs primeiro
+  delay(1000);
+  Serial.println("\n=== ESP32 MINER TRX - VERSÃO FINAL COMPLETA 2025 ===");
+
   setupLEDs();
-  
-  // Piscar LEDs inicialmente para teste
-  Serial.println("🔴 Testando LEDs...");
-  for(int i = 0; i < 3; i++) {
-    digitalWrite(LED_AP_MODE, HIGH);
-    digitalWrite(LED_WIFI_CONNECT, HIGH);
-    digitalWrite(LED_MINING, HIGH);
-    digitalWrite(LED_SHARES, HIGH);
-    delay(200);
-    digitalWrite(LED_AP_MODE, LOW);
-    digitalWrite(LED_WIFI_CONNECT, LOW);
-    digitalWrite(LED_MINING, LOW);
-    digitalWrite(LED_SHARES, LOW);
-    delay(200);
-  }
-  
-  // Carregar configuração salva
+  if (!SPIFFS.begin(true)) Serial.println("Erro SPIFFS!");
+  else Serial.println("SPIFFS OK!");
+
   loadConfig();
-  
-  // Inicializar acelerador SHA-256
   init_sha256_accelerator();
-  Serial.println("✅ Acelerador SHA-256 inicializado!");
-  
-  // Conectar WiFi (tenta STA, fallback para AP)
-  if (!connectToWiFi()) {
-    Serial.println("🔄 Iniciando no modo AP (configuração)");
-  }
-  
-  // Configurar mDNS apenas se conectado no WiFi
-  if (wifiConnected && !MDNS.begin("esp32-miner")) {
-    Serial.println("❌ Erro ao iniciar mDNS");
-  } else if (wifiConnected) {
-    Serial.println("✅ mDNS: http://esp32-miner.local");
-  }
-  
-  start_time = millis();
+  connectToWiFi();
+
+  if (wifiConnected) MDNS.begin("esp32-miner");
+
   setupWebServer();
-  
-  // Conectar à pool apenas se WiFi conectado
-  if (wifiConnected && connectToMiningPool()) {
-    Serial.println("⛏️ Minerador pronto!");
-  } else if (!wifiConnected) {
-    Serial.println("⏳ Aguardando configuração WiFi via modo AP...");
-  }
-  
-  Serial.println("💡 LEDs configurados:");
-  Serial.println("   D18 - Amarelo: Modo AP");
-  Serial.println("   D19 - Verde: WiFi Conectado");
-  Serial.println("   D22 - Verde Piscante: Minerando");
-  Serial.println("   D23 - Verde Fixo: Shares Aceitos");
+  start_time = millis();
+
+  if (wifiConnected) connectToMiningPool();
 }
 
 void loop() {
   server.handleClient();
-  
-  // Atualizar LEDs continuamente
   updateLEDs();
-  
-  // Verificar se WiFi caiu e ativar AP se necessário
+
   if (wifiConnected && WiFi.status() != WL_CONNECTED) {
-    Serial.println("❌ WiFi desconectado - Ativando modo AP");
     wifiConnected = false;
-    isMiningActive = false;
-    poolConnected = false;
     startAPMode();
   }
-  
-  // Processar mineração apenas se WiFi conectado
+
   if (wifiConnected && poolClient.connected()) {
     handlePoolResponse();
-    
-    static unsigned long last_ping = 0;
-    if (millis() - last_ping > 30000) {
-      poolClient.print("{\"id\":99,\"method\":\"mining.ping\",\"params\":[]}\n");
-      last_ping = millis();
-    }
-    
-    if (current_job_id != "") {
-      processMiningJob();
-    } else {
-      isMiningActive = false;
-    }
-    
-    static unsigned long last_hashrate_update = 0;
-    if (millis() - last_hashrate_update > 120000) {
-      submitHashrate();
-      last_hashrate_update = millis();
-    }
+    if (current_job_id != "") processMiningJob();
   } else if (wifiConnected && !poolClient.connected()) {
-    // Tentar reconectar à pool
-    isMiningActive = false;
-    Serial.println("🔁 Reconectando à pool...");
-    poolConnected = false;
-    if (connectToMiningPool()) {
-      delay(2000);
-    }
     delay(5000);
+    connectToMiningPool();
   }
-  
-  // Salvar log apenas se minerando
-  if (wifiConnected && millis() - last_log_save > 300000) {
-    saveLog();
-    last_log_save = millis();
-  }
-  
-  delay(50);
+
+  if (millis() - last_log_save > 300000) { saveLog(); last_log_save = millis(); }
+  delay(10);
 }
