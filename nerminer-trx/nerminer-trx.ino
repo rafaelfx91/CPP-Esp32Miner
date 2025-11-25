@@ -11,8 +11,8 @@ String wifi_ssid = "SUAREDE";
 String wifi_password = "SUASENHA";
 String trx_wallet = "TSGYPqFaRBg8XMQnMzQdPTKyYaVxeyCfCn";
 String pool_host = "sha256.unmineable.com";
-String pool_port = "3333";
-String worker_name = "esp32-miner#cub7-5a3h";
+String pool_port = "13333";
+String worker_name = "esp32miner";
 String coin_type = "TRX";
 
 // ========== PINOS DOS LEDs ==========
@@ -151,10 +151,16 @@ bool connectToMiningPool() {
   }
   return false;
 }
-
+/*
 void authorizeWorker() {
   String msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"" + coin_type + ":" + trx_wallet + "." + worker_name + "\",\"\"]}\n";
   poolClient.print(msg);
+}*/
+void authorizeWorker() {
+  delay(2000);  // Espera conexão estável
+  String msg = "{\"id\":2,\"method\":\"mining.authorize\",\"params\":[\"" + coin_type + ":" + trx_wallet + "." + worker_name + "\",\"\"]}\n";
+  poolClient.print(msg);
+  Serial.println("Enviando auth: " + msg);  // Debug
 }
 
 // ====================== MINERAÇÃO ======================
@@ -214,7 +220,7 @@ void handlePoolResponse() {
 void processMiningJob() {
   if (current_job_id == "") return;
   uint8_t hash[32];
-  for (int i = 0; i < 1000; i++) {
+  for (int i = 0; i < 10000; i++) {
     memcpy(job_header + 76, &current_nonce, 4);
     calculate_double_sha256(job_header, hash);
     hashes_calculated++;
@@ -640,9 +646,13 @@ void handleRoot() {
                   <div class="form-group">
                       <label class="form-label">Coin:</label>
                       <select id="coinType" class="form-input">
-                          <option value="TRX">TRON (TRX)</option>
-                          <option value="BTC">Bitcoin (BTC)</option>
-                          <option value="DOGE">Dogecoin (DOGE)</option>
+                        <option value="BTC">Bitcoin (BTC)</option>
+                        <option value="BCH">Bitcoin Cash (BCH)</option>
+                        <option value="DOGE">Dogecoin (DOGE)</option>
+                        <option value="ETH">Etherium (ETH)</option>
+                        <option value="LTC">Litecoin (LTC)</option>
+                        <option value="TRX">TRON (TRX)</option>
+                        <option value="XMR">Monero (XMR)</option>
                       </select>
                   </div>
                   <div class="form-group">
