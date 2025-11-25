@@ -1,4 +1,4 @@
-⚡ ESP32 Crypto Miner - Mineração SHA-256 com Interface Web
+⚡ ESP32 Crypto Miner - Mineração SHA-256 com Interface Web<br>
 <img src="https://img.shields.io/badge/ESP32-NodeMCU-green?style=for-the-badge&logo=espressif" /> <br>
 <img src="https://img.shields.io/badge/Platform-Arduino_IDE-blue?style=for-the-badge&logo=arduino" /><br>
 <img src="https://img.shields.io/badge/SHA--256-Mining-orange?style=for-the-badge&logo=bitcoin" /><br>
